@@ -2,19 +2,32 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
 
 
-DEFAULT_ARGUMENTS = {
-    "service_booking": {
-        "vehicle_id": "VIN_DEMO_001",
-        "store_id": "STORE_DEMO_001",
-        "preferred_date": "2026-09-01",
-    }
+MODEL_PATH = Path("model/Qwen3-0.6B")
+SCHEMA_PATH = Path("data/v2/tool_schemas.json")
+SEEDS_DIR = Path("data/v2/seeds/train")
+SEED_ID = "cat4_booking_001"
+DEMO_USER_DETAILS = "我的车辆标识是 VIN_DEMO_001，想去 STORE_DEMO_001，周六上午有时间。"
+TOOL_ARGUMENTS = {
+    "vehicle_id": "VIN_DEMO_001",
+    "store_id": "STORE_DEMO_001",
+    "preferred_date": "2026-09-01",
 }
+
+
+def load_seed(seeds_dir: Path, seed_id: str) -> dict[str, Any]:
+    """Load one existing V2 seed by its seed_id."""
+    for path in sorted(seeds_dir.rglob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                seed = json.loads(line)
+                if seed.get("seed_id") == seed_id:
+                    return seed
+    raise ValueError(f"seed not found: {seed_id}")
 
 
 def load_tool_schema(schema_path: Path, tool_name: str) -> dict[str, Any]:
@@ -25,82 +38,73 @@ def load_tool_schema(schema_path: Path, tool_name: str) -> dict[str, Any]:
             return tool
     raise ValueError(f"tool schema not found: {tool_name}")
 
-
-def build_tool_call_messages(
-    user_message: str,
-    tool_schema: dict[str, Any],
-    arguments: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Build one user turn followed by an assistant function call."""
-    return [
-        {"role": "user", "content": user_message},
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool_schema["name"],
-                        "arguments": json.dumps(arguments, ensure_ascii=False),
-                    },
-                }
-            ],
-        },
-    ]
-
-
-def format_tool_call_sample(
+def run_demo(
     tokenizer: Any,
-    messages: list[dict[str, Any]],
+    seed: dict[str, Any],
     tool_schema: dict[str, Any],
-) -> str:
-    """Return the exact text the tokenizer template renders for this sample."""
-    return tokenizer.apply_chat_template(
+    user_details: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+
+
+    followup = "为了帮助您" + seed["user_goal"] + "，请提供：" + "、".join(
+            seed["required_questions"]
+        ) + "。"
+    messages = [
+            {"role": "user", "content": seed["scenario"]},
+            {"role": "assistant", "content": followup},
+            {"role": "user", "content": user_details},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool_schema["name"],
+                            "arguments": json.dumps(arguments, ensure_ascii=False),
+                        },
+                    }
+                ],
+            },
+        ]
+    result = tokenizer.apply_chat_template(
         messages,
         tools=[tool_schema],
         tokenize=False,
         add_generation_prompt=False,
     )
-
-
-def parse_arguments(raw_arguments: str) -> dict[str, Any]:
-    try:
-        arguments = json.loads(raw_arguments)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"--arguments must be a JSON object: {exc.msg}") from exc
-    if not isinstance(arguments, dict):
-        raise ValueError("--arguments must be a JSON object")
-    return arguments
+    return {
+        "messages": messages,
+        "formatted":result
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-path", type=Path, default=Path("model/Qwen3-0.6B"))
-    parser.add_argument("--schemas", type=Path, default=Path("data/v2/tool_schemas.json"))
-    parser.add_argument("--tool-name", default="service_booking")
-    parser.add_argument("--user-message", default="我想预约本周末到店保养。")
-    parser.add_argument(
-        "--arguments",
-        help="Function arguments as a JSON object; required for tools without a demo default.",
-    )
-    args = parser.parse_args()
+    # {"seed_id": "cat4_booking_001", "split": "train", "category_id": 4, "category": "预约与服务受理", "subcategory": "常规保养预约", "scenario": "客户希望预约周六上午做常规保养", "user_goal": "找到可用时段并完成预约", "customer_role": "车主本人", "service_stage": "预约中", "required_facts": ["预约需以门店实时工位为准", "应确认车型和服务项目"], "required_questions": ["意向门店", "车型车牌和联系电话"], "required_actions": ["查询时段并在客户确认后创建预约"], "prohibited_actions": ["不得未查询即保证具体时段"], "tool_required": true, "tool_name": "service_booking"}
 
-    tool_schema = load_tool_schema(args.schemas, args.tool_name)
-    raw_arguments = args.arguments or json.dumps(DEFAULT_ARGUMENTS.get(args.tool_name, {}))
-    arguments = parse_arguments(raw_arguments)
-    messages = build_tool_call_messages(args.user_message, tool_schema, arguments)
+    seed = load_seed(SEEDS_DIR, SEED_ID)
+    tool_schema = load_tool_schema(SCHEMA_PATH, seed["tool_name"])
 
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    formatted = format_tool_call_sample(tokenizer, messages, tool_schema)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+    result = run_demo(
+        tokenizer, seed, tool_schema, DEMO_USER_DETAILS, TOOL_ARGUMENTS
+    )
+
+    print("=== 1. 输入种子数据 ===")
+    print(json.dumps(seed, ensure_ascii=False, indent=2))
 
 
-    print("=== apply_chat_template output ===")
-    print(formatted)
+    print("=== 2. 种子约束衍生出的训练 messages ===")
+    print(json.dumps(result["messages"], ensure_ascii=False, indent=2))
+
+
+    print("=== 3. 基于message格式化之后的结果 ===")
+    print(result["formatted"])
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
