@@ -1,0 +1,15 @@
+test/
+1208/
+.vscode/
+data/ultrachat_200k
+data/ultrafeedback_binarized
+model.safetensors
+__pycache__/
+.obsidian/
+*.bkp
+unsloth_compiled_cache/
+knowledge/
+logs/
+model/
+rl/
+scripts/
