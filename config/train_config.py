@@ -14,7 +14,7 @@ class ModelConfig:
 
     # 云端服务器模型路径或 HuggingFace/ModelScope 标识
     # 例如本地/云端绝对路径
-    model_name_or_path: str = os.getenv("MODEL_PATH", "model/Qwen3-8B")
+    model_name_or_path: str = os.getenv("MODEL_PATH", "model/Qwen/Qwen3-8B")
     max_seq_length: int = 2048  # 最大序列长度 (多轮对话长度P99为不到2000字,约1700token,2048足够)
     dtype: Optional[str] = "bfloat16"
     load_in_4bit: bool = False  # False 为全精度 BF16 微调，True 为 QLoRA 4-bit 量化
