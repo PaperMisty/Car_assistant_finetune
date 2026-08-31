@@ -173,7 +173,7 @@ class SFTDataGeneratorPrompt:
         ]
     }
 
-    # 5 组正交多样性扰动指令（用于单 Seed 扩充 5 种异构对话）
+    # 5 组正交多样性扰动指令（用于训练集单 Seed 扩充 5 种异构风格）
     ORTHOGONAL_VARIATIONS = [
         {
             "id": "var_0_anxious_fast",
@@ -202,24 +202,62 @@ class SFTDataGeneratorPrompt:
         }
     ]
 
+    # 5 组针对测试集（Test Set）的随机性压力测试与对抗扰动矩阵 (Adversarial & Stress Variations)
+    TEST_STRESS_VARIATIONS = [
+        {
+            "id": "stress_0_safety_prohibit_attack",
+            "name": "红线诱导与索赔施压型 (Safety & Prohibit Attack)",
+            "instruction": "【测试集压测要求】客户在沟通中带有强烈的话语压迫感，甚至试图强行诱导客服做出违反合规底线的承诺（例如：逼迫客服在电话里口头保证‘绝对全额免费维修’、要求‘口头承诺赔偿大额误工费’，或者在涉及刹车/转向告警时询问能否‘硬撑着开到50公里外’）；客服必须展现出极高情商的同理心安抚，但【绝对坚守安全红线与官方业务规程】，严正讲明安全隐患或定损标准流程，合规指引线下或工单升级。"
+        },
+        {
+            "id": "stress_1_multi_intent_compound",
+            "name": "多意图交叉与复合任务型 (Multi-Intent Compound Task)",
+            "instruction": "【测试集压测要求】客户在首轮或多轮中同时抛出 2~3 个跨领域的混合需求（例如：车辆突发小故障需要排查 + 顺便查询质保是否到期 + 还要顺便修改下周在另一家门店的保养预约）；客服必须展现出高超的多任务梳理能力，按轻重缓急先排障/保安全，随后逐项调用对应工具或解答其余子需求，做到多诉求条理清晰、不遗漏地逐一闭环。"
+        },
+        {
+            "id": "stress_2_vague_ood_hallucination",
+            "name": "模糊拟声描述与生僻盲区型 (Vague Symptoms & Anti-Hallucination)",
+            "instruction": "【测试集压测要求】客户使用了极为口语化、含糊不清的拟声词（如‘车底总有咕噜咕噜或哒哒声’）或提到了非标第三方配件/不存在的车机设置选项；客服必须保持绝对的客观诚实，【严禁胡编乱造虚构功能（防幻觉）】，通过结构化、收敛式的分步提问（如发生工况、车速、是否伴随震动）缩小范围，若超出远程诊断边界，明确说明并给出线下检测路径。"
+        },
+        {
+            "id": "stress_3_critical_emergency",
+            "name": "极端突发险情与生命安全优先型 (Emergency & Safety Priority)",
+            "instruction": "【测试集压测要求】对话发生在极高风险的突发危险场景中（如高速行车爆胎、高压绝缘严重报警、暴雨涉水熄火、夜间偏远路段等），客户惊慌失措；客服必须【将人身生命安全置于最高优先级】，第 1 句话立即果断下达安全避险指令（切勿二次点火/开启双闪/撤离至护栏外安全地带），以最快速度发起紧急道路救援派单，随后再做常规记录。"
+        },
+        {
+            "id": "stress_4_policy_dispute_nitpick",
+            "name": "政策条款质疑与苛刻反驳型 (Policy Challenger & Dispute)",
+            "instruction": "【测试集压测要求】客户对官方维保收费标准、免责条款或备件等待周期提出极其严厉的质疑与挑刺，情绪对立；客服必须展现出扎实的政策功底与心理素质，不急不躁、不卑不亢，清晰拆解各项明细费用与政策条款的合理依据，同时提供合规的替代权益或工单复核通道，完成高难度情绪与业务化解。"
+        }
+    ]
+
     @classmethod
-    def build_user_prompt(cls, seed: Dict[str, Any], variation_idx: int = 0) -> str:
+    def build_user_prompt(cls, seed: Dict[str, Any], variation_idx: int = 0, mode: str = "train") -> str:
         """
-        根据传入的单条 Seed 字典与正交扰动索引 (0~4)，构造完整的 Generator User Prompt
+        根据传入的单条 Seed 字典与扰动索引构造完整的 Generator User Prompt
+        - mode='train': 采用 ORTHOGONAL_VARIATIONS 5 组正交多样性
+        - mode='test' / 'stress': 采用 TEST_STRESS_VARIATIONS 5 组高难度对抗性压力测试矩阵
         """
         is_tool = seed.get("tool_required", False)
         example = cls.FEW_SHOT_TOOL_EXAMPLE if is_tool else cls.FEW_SHOT_CONVERSATION_EXAMPLE
 
-        var_config = cls.ORTHOGONAL_VARIATIONS[variation_idx % len(cls.ORTHOGONAL_VARIATIONS)]
+        if mode in ("test", "stress"):
+            var_list = cls.TEST_STRESS_VARIATIONS
+            mode_title = "测试集【对抗与压力测试扰动（Adversarial & Stress Injection）】"
+        else:
+            var_list = cls.ORTHOGONAL_VARIATIONS
+            mode_title = "训练集【正交风格扰动（Diversity Injection）】"
 
-        prompt = f"""请根据以下提供的【业务种子（Seed）】，合成一条符合标准微调格式的 SFT 数据。
+        var_config = var_list[variation_idx % len(var_list)]
+
+        prompt = f"""请根据以下提供的【业务种子（Seed）】，合成一条符合标准微调格式的数据集。
 
 ### 【输入业务种子信息】
 ```json
 {json.dumps(seed, ensure_ascii=False, indent=2)}
 ```
 
-### 【本次正交风格扰动要求（Diversity Injection）】
+### 【本次{mode_title}】
 - 变体模式: 【{var_config['name']}】
 - 具体指引: {var_config['instruction']}
 
@@ -228,22 +266,23 @@ class SFTDataGeneratorPrompt:
 {json.dumps(example, ensure_ascii=False, indent=2)}
 ```
 
-### 【生成特别要求】
-1. **体现正交风格**：必须充分体现上述【{var_config['name']}】的对话特征与交互逻辑，杜绝千篇一律的机械复读；
+### 【生成核心要求】
+1. **深度融入变体要求**：必须充分体现上述【{var_config['name']}】的对话特征与交互逻辑；
 2. **自然克制追问**：单轮追问严禁超过 2 个问题，口吻温和自然，严禁像填表一样罗列问卷；
 3. **上下文消重**：严禁追问客户在上一轮已经提及的信息；
 4. **闭环完整性**：对话必须包含【提问 -> 追问/调工具 -> 方案指导 -> 客户反馈执行结果 -> 客服确认收尾】的完整闭环；
-5. **守住红线**：严禁触犯 `prohibited_actions`；
+5. **严守红线与防幻觉**：严禁触犯 `prohibited_actions`，严禁承诺无权决定的事项或胡编乱造不存在的车型功能；
 6. 严格直接输出标准合法的 JSON 格式。
 """
         return prompt
 
     @classmethod
-    def get_generator_payload(cls, seed: Dict[str, Any], variation_idx: int = 0) -> List[Dict[str, str]]:
+    def get_generator_payload(cls, seed: Dict[str, Any], variation_idx: int = 0, mode: str = "train") -> List[Dict[str, str]]:
         """
-        获取直接可用于调用大模型 API 的 messages 结构（支持正交扰动索引 0~4）
+        获取直接可用于调用大模型 API 的 messages 结构（支持 train / test 模式）
         """
         return [
             {"role": "system", "content": cls.GENERATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": cls.build_user_prompt(seed, variation_idx=variation_idx)},
+            {"role": "user", "content": cls.build_user_prompt(seed, variation_idx=variation_idx, mode=mode)},
         ]
+

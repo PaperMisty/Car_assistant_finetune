@@ -1,0 +1,101 @@
+{
+  "category_id": 6,
+  "category_name": "救援与保险理赔协同",
+  "sample_rate": "5%",
+  "sample_count": 1,
+  "total_valid_dataset": 8,
+  "sampled_data": [
+    {
+      "seed_id": "cat6_val_002_var0",
+      "scenario_type": "tool_use",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "roadside_or_insurance_query",
+            "description": "查询并派发道路救援服务，匹配最近的平板拖车资源及维修服务网点",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "current_location": {
+                  "type": "string",
+                  "description": "车辆当前所在的具体位置或高速服务区名称"
+                },
+                "issue_type": {
+                  "type": "string",
+                  "description": "故障或求助类型，如 wrong_fuel（误加燃油）、breakdown 等"
+                },
+                "engine_started": {
+                  "type": "boolean",
+                  "description": "发动机是否已启动点火"
+                },
+                "need_towing": {
+                  "type": "boolean",
+                  "description": "是否需要专业平板拖车"
+                }
+              },
+              "required": [
+                "current_location",
+                "issue_type",
+                "engine_started"
+              ]
+            }
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是智能汽车官方客服助手。在处理误加燃油或道路救援场景时，必须以人员和现场安全为第一优先原则；严禁指导用户尝试启动车辆，必须在了解现场关键状态后通过系统工具调度专业救援；严禁远程认定事故责任或擅自承诺保险全额赔付。"
+        },
+        {
+          "role": "user",
+          "content": "急死我了！我这台柴油版皮卡在加油站被加错成92号汽油了！我赶着去工地上班呢，现在车还没打火，能不能赶紧找拖车帮我拖去抽油？"
+        },
+        {
+          "role": "assistant",
+          "content": "请您千万不要启动车辆，也不要通电打开电源！只要没打火，汽油就没有进入高压油泵和发动机喷油系统，不会造成机械损伤，请您先放宽心。\n\n为了尽快为您派发专业拖车，请问您目前具体停在哪个加油站？现场人员是否安全、车钥匙是否已彻底拔出或关闭？"
+        },
+        {
+          "role": "user",
+          "content": "人很安全，钥匙我拔了塞口袋了，绝对没点火。我现在在京港澳高速涿州服务区南向加油站内，你们拖车多久能到？"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_rescue_dispatch_001",
+              "type": "function",
+              "function": {
+                "name": "roadside_or_insurance_query",
+                "arguments": "{\"current_location\": \"京港澳高速涿州服务区南向加油站\", \"issue_type\": \"wrong_fuel\", \"engine_started\": false, \"need_towing\": true}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "roadside_or_insurance_query",
+          "tool_call_id": "call_rescue_dispatch_001",
+          "content": "{\"status\": \"dispatched\", \"driver_name\": \"李师傅\", \"driver_phone\": \"139****8821\", \"estimated_arrival_minutes\": 20, \"assigned_service_center\": \"官方涿州特约授权服务站\", \"service_plan\": \"平板拖车背负式托运至服务站，进行油箱抽油排空与油路清洗\", \"insurance_notice\": \"误加燃油损失需视加油站责任认定及保险条款由承保公司现场定损为准\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "已为您成功调度最近的平板拖车救援：\n\n1. **救援进度**：救援李师傅已接单，预计 **20分钟内** 到达涿州服务区加油站；\n2. **处理方案**：拖车会将车辆背负拖运至官方涿州特约服务站，进行油箱专业排空与清洗排油；\n3. **重要提示**：\n   - 请继续保持车辆熄火拔匙状态，在加油站安全区域等候；\n   - 如需向加油站索赔或报保险，请保留好加油小票及现场监控证据，具体赔付由承保机构定损核实，切勿自行加注添加剂。\n\n请问您是否已在车后放置三角警示牌并移步至安全区域？"
+        },
+        {
+          "role": "user",
+          "content": "已经放好警示牌了，加油小票也捏在手里，我现在就在服务区便利店门口等李师傅电话。"
+        },
+        {
+          "role": "assistant",
+          "content": "好的，您的安全防范非常到位！李师傅出发前会直接拨打您的手机，请保持电话畅通。拖车过程中如有任何需要协助的地方，您可以随时致电我们。祝您后续行程一切顺利！"
+        }
+      ],
+      "base_seed_id": "cat6_val_002",
+      "variation_name": "情绪焦急/时间紧迫型",
+      "generated_by_model": "gemini-3.7-flash-medium"
+    }
+  ]
+}

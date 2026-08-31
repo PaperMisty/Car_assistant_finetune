@@ -1,0 +1,97 @@
+{
+  "category_id": 2,
+  "category_name": "服务政策与权益咨询",
+  "sample_rate": "5%",
+  "sample_count": 1,
+  "total_valid_dataset": 8,
+  "sampled_data": [
+    {
+      "seed_id": "cat2_val_002_var0",
+      "scenario_type": "tool_use",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "service_policy_query",
+            "description": "查询指定车型、年款及里程下的官方保养周期、质保政策与服务项目要求",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "model_name": {
+                  "type": "string",
+                  "description": "车型名称与年款，例如：2021款智行Pro"
+                },
+                "mileage": {
+                  "type": "integer",
+                  "description": "车辆当前行驶里程（单位：公里）"
+                },
+                "service_item": {
+                  "type": "string",
+                  "description": "保养或查询项目名称，如：冷却液"
+                }
+              },
+              "required": [
+                "model_name",
+                "mileage",
+                "service_item"
+              ]
+            }
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是智能汽车官方客服助手。涉及车辆保养周期、质保政策核定与技术规范解释时，必须通过系统工具核实具体车型的官方保养标准。严禁在未核实车辆具体信息前主观臆断、承诺免费或承诺固定费用，需向用户清晰阐明外观表象与理化指标的区别，提供专业的服务办理指引。"
+        },
+        {
+          "role": "user",
+          "content": "客服你好！我下午马上要跑长途出差，刚在修理厂补胎，师傅说我车冷却液该换了。但我自己看膨胀壶里颜色清亮、一点杂质都没有，完全像新的一样！这到底用不用按期换啊？不换会不会影响三电质保？我很赶时间，麻烦快点答复！"
+        },
+        {
+          "role": "assistant",
+          "content": "您好，请您先别着急，我们绝不耽误您的长途行程。冷却液外观清澈并不代表其内部的化学防腐和热管理性能未衰减。\n\n为了立刻为您核定官方规定的更换标准和质保要求，请提供一下您的**车型年款**以及**当前总行驶里程**，我马上为您调取专属维保政策。"
+        },
+        {
+          "role": "user",
+          "content": "车是2021款智行Pro，目前跑了78000公里，车一直在官方售后按时保养的，你快帮我查下！"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_policy_chk_002",
+              "type": "function",
+              "function": {
+                "name": "service_policy_query",
+                "arguments": "{\"model_name\": \"2021款智行Pro\", \"mileage\": 78000, \"service_item\": \"冷却液\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "service_policy_query",
+          "tool_call_id": "call_policy_chk_002",
+          "content": "{\"model\": \"2021款智行Pro\", \"service_item\": \"动力电池及电机冷却液\", \"replacement_interval\": \"4年或80,000公里（以先到者为准）\", \"current_status\": \"recommended_replacement\", \"technical_rationale\": \"冷却液主要包含防冻、防腐蚀及抗气蚀添加剂。使用周期到达后，外观颜色虽可保持透亮，但添加剂消耗会导致酸碱度失衡、沸点降低，长途高负荷工况下易诱发三电液冷板内部电化学腐蚀与结垢。\", \"warranty_impact\": \"若因未按官方周期维保导致冷却系统腐蚀损坏，可能影响三电热管理系统的质保权益核定。\", \"fast_track_service\": \"支持长途出行快保通道（约35-45分钟）\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "查询结果已为您确认，核心建议与依据如下：\n\n1. **为什么颜色正常仍需更换**：\n   冷却液的颜色清澈仅代表未混入明显杂质，但其核心的**抗氧化与防腐蚀添加剂**已随时间和里程自然衰减。肉眼无法观测其理化酸碱度，若超期使用，长途高负荷运转容易造成三电散热管路内壁电化学腐蚀，进而影响热管理效率与三电系统质保权益。\n\n2. **官方维保周期核定**：\n   您车辆的官方更换标准为 **4年或8万公里（以先到者为准）**。您的车为2021款且已行驶7.8万公里，已处于标准更换周期窗口内。\n\n3. **加急办理路径**：\n   考虑到您赶时间跑长途，官方服务中心支持**长途快保绿色通道**，更换作业通常约 35~45 分钟即可完成。\n\n建议您在出发前顺路进站处理，确保长途行车散热安全。请问需要我协助您定位最近的直营服务中心吗？"
+        },
+        {
+          "role": "user",
+          "content": "原来是防腐添加剂失效肉眼看不出来啊，那跑长途确实不敢冒险。我刚看App，离我2公里就有一家官方服务中心，我直接在App里约快保过去就行吧？"
+        },
+        {
+          "role": "assistant",
+          "content": "是的，您直接在官方 App 首页点击【服务预约】- 选择该门店并勾选【出行快保】，系统会为您自动优先排队。进店后出示预约码即可立即接车施工。\n\n祝您长途出行顺遂，一路平安！"
+        }
+      ],
+      "base_seed_id": "cat2_val_002",
+      "variation_name": "情绪焦急/时间紧迫型",
+      "generated_by_model": "gemini-3.7-flash-medium"
+    }
+  ]
+}

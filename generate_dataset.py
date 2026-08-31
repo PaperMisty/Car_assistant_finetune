@@ -21,8 +21,55 @@ from config.prompt import SFTDataGeneratorPrompt
 from utils.data_format_checker import DataFormatChecker
 from utils.logger import logger
 
-# 1. 加载配置与模型池
+import argparse
+
 load_dotenv(override=True)
+# 1. 解析命令行参数
+parser = argparse.ArgumentParser(description="智能汽车客服助手 - 多数据集通用生成流水线")
+parser.add_argument(
+    "--split",
+    type=str,
+    choices=["train", "validation", "val", "test", "final_test"],
+    default="train",
+    help="数据集划分: train (训练集 3.2k), validation (验证集 160条), test (压测测试集 400条)",
+)
+parser.add_argument("--variations", type=int, default=None, help="每个 Seed 生成的样本数 (默认 train=5, val=1, test=1)")
+parser.add_argument("--concurrency", type=int, default=50, help="异步并发数 (默认 50)")
+parser.add_argument(
+    "-y",
+    "--yes",
+    action="store_true",
+    help="自动确认所有交互式提示（跳过中途 yes/no 确认，全自动连续生成全部 8 大场景）",
+)
+args = parser.parse_args()
+
+# 规范化 split 名称
+SPLIT = (
+    "test"
+    if args.split in ("test", "final_test")
+    else ("validation" if args.split in ("validation", "val") else "train")
+)
+
+# 目录与参数映射
+if SPLIT == "test":
+    SEEDS_DIR = "data/v2/seeds/final_test"
+    OUTPUT_DIR = "data/v2/test"
+    DEFAULT_VARIATIONS = 1
+    PROMPT_MODE = "test"
+elif SPLIT == "validation":
+    SEEDS_DIR = "data/v2/seeds/validation"
+    OUTPUT_DIR = "data/v2/validation"
+    DEFAULT_VARIATIONS = 1
+    PROMPT_MODE = "train"
+else:
+    SEEDS_DIR = "data/v2/seeds/train"
+    OUTPUT_DIR = "data/v2/sft"
+    DEFAULT_VARIATIONS = 5
+    PROMPT_MODE = "train"
+
+VARIATIONS_PER_SEED = args.variations if args.variations is not None else DEFAULT_VARIATIONS
+CONCURRENCY_LIMIT = args.concurrency
+MAX_RETRY_ROUNDS = 3
 
 # 自动收集 .env 中的百炼模型池 (LLM_DEFAULT_MODEL_*)
 QWEN_MODEL_POOL = [
@@ -46,12 +93,6 @@ gemini_client = AsyncOpenAI(
     timeout=60.0,
 )
 gemini_model = os.getenv("Gemini_MODEL_NAME", "gemini-3.7-flash-medium")
-
-CONCURRENCY_LIMIT = 50
-MAX_RETRY_ROUNDS = 3
-VARIATIONS_PER_SEED = 5
-OUTPUT_DIR = "data/v2/sft"
-SEEDS_DIR = "data/v2/seeds/train"
 
 CATEGORY_MAP = {
     1: "用车与智能功能支持",
@@ -77,9 +118,7 @@ def load_category_seeds(cat_id: int) -> List[Dict[str, Any]]:
     # 匹配 category{cat_id}_ 开头的所有 jsonl 文件
     prefix = f"category{cat_id}_"
     matched_files = [
-        os.path.join(SEEDS_DIR, f)
-        for f in os.listdir(SEEDS_DIR)
-        if f.startswith(prefix) and f.endswith(".jsonl")
+        os.path.join(SEEDS_DIR, f) for f in os.listdir(SEEDS_DIR) if f.startswith(prefix) and f.endswith(".jsonl")
     ]
     matched_files.sort()
 
@@ -123,12 +162,19 @@ async def generate_single_sample_async(
     """
     base_seed_id = seed_item.get("seed_id", "UNKNOWN")
     task_id = f"{base_seed_id}_var{variation_idx}"
-    var_meta = SFTDataGeneratorPrompt.ORTHOGONAL_VARIATIONS[variation_idx]
+    if PROMPT_MODE in ("test", "stress"):
+        var_meta = SFTDataGeneratorPrompt.TEST_STRESS_VARIATIONS[
+            variation_idx % len(SFTDataGeneratorPrompt.TEST_STRESS_VARIATIONS)
+        ]
+    else:
+        var_meta = SFTDataGeneratorPrompt.ORTHOGONAL_VARIATIONS[
+            variation_idx % len(SFTDataGeneratorPrompt.ORTHOGONAL_VARIATIONS)
+        ]
 
     client = qwen_client if model_type == "Qwen" else gemini_client
     model_name = qwen_model_name if model_type == "Qwen" else gemini_model
 
-    payload = SFTDataGeneratorPrompt.get_generator_payload(seed_item, variation_idx=variation_idx)
+    payload = SFTDataGeneratorPrompt.get_generator_payload(seed_item, variation_idx=variation_idx, mode=PROMPT_MODE)
     kwargs = {
         "model": model_name,
         "messages": payload,
@@ -166,9 +212,7 @@ async def generate_single_sample_async(
             tokens = resp.usage.completion_tokens if resp.usage else 0
 
             if is_valid:
-                logger.info(
-                    f"[PASS] {task_id:24s} | 模型: {model_name:24s} | 耗时: {latency:.2f}s"
-                )
+                logger.info(f"[PASS] {task_id:24s} | 模型: {model_name:24s} | 耗时: {latency:.2f}s")
                 return {
                     "status": "SUCCESS",
                     "task_id": task_id,
@@ -268,12 +312,12 @@ async def process_category(cat_id: int, semaphore: asyncio.Semaphore) -> bool:
         if not pending_tasks:
             break
 
-        logger.info(f"\n>>> [Category {cat_id}] 开始第 {round_idx}/{MAX_RETRY_ROUNDS} 轮批处理 (待生成: {len(pending_tasks)} 条) <<<")
+        logger.info(
+            f"\n>>> [Category {cat_id}] 开始第 {round_idx}/{MAX_RETRY_ROUNDS} 轮批处理 (待生成: {len(pending_tasks)} 条) <<<"
+        )
 
         coroutines = [
-            generate_single_sample_async(
-                semaphore, seed, v_idx, m_type, q_model, attempt=round_idx
-            )
+            generate_single_sample_async(semaphore, seed, v_idx, m_type, q_model, attempt=round_idx)
             for seed, v_idx, m_type, q_model in pending_tasks
         ]
 
@@ -330,7 +374,7 @@ async def process_category(cat_id: int, semaphore: asyncio.Semaphore) -> bool:
     logger.info("\n" + "=" * 70)
     logger.info(f"【Category {cat_id} - {cat_name} 汇总报告】")
     logger.info("=" * 70)
-    logger.info(f"1. 规划样本总数: {total_tasks} 条 (80 × 5)")
+    logger.info(f"1. 规划样本总数: {total_tasks} 条 ({len(seeds)} × {VARIATIONS_PER_SEED})")
     logger.info(f"2. 最终入库样本: {len(valid_list)} 条 (合格率: {len(valid_list)/total_tasks*100:.2f}%)")
     logger.info(f"3. 历史重试拦截: {len(failed_history)} 次")
     logger.info(f"4. 50路并发耗时 : {total_elapsed:.2f} 秒 (平均吞吐: {total_elapsed/total_tasks:.2f}s/条)")
@@ -351,26 +395,37 @@ async def main():
 
     for cat_id in range(1, 9):
         cat_name = CATEGORY_MAP[cat_id]
-        
+
         # 处理当前场景
         success = await process_category(cat_id, semaphore)
-        
+
         # 最后一个场景处理完后无需提示继续
         if cat_id == 8:
             logger.info("🎉 全部 8 大场景 SFT 数据集已全部构建完成！")
             break
 
-        # 如果刚才该场景是刚生成的（不是秒过的），则进行交互式确认
-        print("\n" + "-" * 70)
-        user_choice = input(
-            f"🔔 [Token 保护确认] 【Category {cat_id} - {cat_name}】已处理完毕。\n"
-            f"👉 是否继续生成下一个场景【Category {cat_id+1} - {CATEGORY_MAP[cat_id+1]}】？(yes/no) [默认 no]: "
-        ).strip().lower()
-        print("-" * 70 + "\n")
+        # 如果刚才该场景是刚生成的（不是秒过的），则进行交互式确认（若传入 -y 则自动跳过）
+        if args.yes:
+            logger.info(
+                f"⚡ 已启用 [-y] 自动确认模式，直接进入下一个场景【Category {cat_id+1} - {CATEGORY_MAP[cat_id+1]}】..."
+            )
+        else:
+            print("\n" + "-" * 70)
+            user_choice = (
+                input(
+                    f"🔔 [Token 保护确认] 【Category {cat_id} - {cat_name}】已处理完毕。\n"
+                    f"👉 是否继续生成下一个场景【Category {cat_id+1} - {CATEGORY_MAP[cat_id+1]}】？(yes/no) [默认 no]: "
+                )
+                .strip()
+                .lower()
+            )
+            print("-" * 70 + "\n")
 
-        if user_choice not in {"yes", "y"}:
-            logger.info(f"用户选择暂停（输入 '{user_choice}'），流水线已在 Category {cat_id} 处安全停止，保护 Token 消耗。")
-            break
+            if user_choice not in {"yes", "y"}:
+                logger.info(
+                    f"用户选择暂停（输入 '{user_choice}'），流水线已在 Category {cat_id} 处安全停止，保护 Token 消耗。"
+                )
+                break
 
 
 if __name__ == "__main__":

@@ -1,0 +1,117 @@
+{
+  "category_id": 7,
+  "category_name": "抱怨与升级投诉处理",
+  "sample_rate": "5%",
+  "sample_count": 1,
+  "total_valid_dataset": 8,
+  "sampled_data": [
+    {
+      "seed_id": "cat7_val_002_var0",
+      "scenario_type": "tool_use",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "complaint_case_create",
+            "description": "创建客户投诉及升级处理工单，联动门店应急调度与总部质量跟进",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "store_name": {
+                  "type": "string",
+                  "description": "涉及的服务中心或门店名称"
+                },
+                "customer_role": {
+                  "type": "string",
+                  "description": "客户身份，如车主本人、家庭成员、代办人"
+                },
+                "issue_category": {
+                  "type": "string",
+                  "description": "问题类别，例如：无障碍服务投诉、服务态度争议、维修质量争议等"
+                },
+                "urgency_level": {
+                  "type": "string",
+                  "enum": [
+                    "NORMAL",
+                    "URGENT",
+                    "CRITICAL"
+                  ],
+                  "description": "紧急程度：NORMAL常规、URGENT紧急、CRITICAL极危急"
+                },
+                "event_summary": {
+                  "type": "string",
+                  "description": "事件经过、时间线及现状描述"
+                },
+                "core_demand": {
+                  "type": "string",
+                  "description": "客户的核心诉求（如现场立即疏通、服务整改答复等）"
+                }
+              },
+              "required": [
+                "store_name",
+                "customer_role",
+                "issue_category",
+                "urgency_level",
+                "event_summary",
+                "core_demand"
+              ]
+            }
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是智能汽车官方客服专家。处理客户投诉与争议时，必须严格遵守客观公正原则：完整记录事实，建立工单并明确专人与反馈节点；投诉受理不等于责任认定，严禁在调查前私自认责或擅自承诺具体补偿；遇到现场紧急阻碍时，需优先快速协调现场通道，保障客户基本权益。"
+        },
+        {
+          "role": "user",
+          "content": "我现在在你们杭州滨江服务中心门口！我是坐轮椅的车主，约了今天上午十点半保养，结果东侧无障碍通道被你们店里的物料和试驾车堵得严严实实！我待会儿一点钟还要去医院复查，时间非常赶，你们能不能立刻派人来清开，并给我严肃整改解释？"
+        },
+        {
+          "role": "assistant",
+          "content": "非常理解您的焦急心情，耽误您的就医行程确实不应该，我立刻为您加急处理！\n\n为了同步建立正式整改工单并指派值班经理立即到场，请问您目前具体停留在东侧通道的哪个位置？现场是否有拍照留存凭证以便我们后续核查？"
+        },
+        {
+          "role": "user",
+          "content": "就在东侧入口坡道正下方，车牌是浙A·D58219，照片我已经拍好了。我就两个要求：第一，两分钟内让人出来帮我挪车开路，不要耽误我保养和去医院；第二，必须正式立案整改，给我书面或者电话的调查结果！"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_complaint_create_001",
+              "type": "function",
+              "function": {
+                "name": "complaint_case_create",
+                "arguments": "{\"store_name\": \"杭州滨江服务中心\", \"customer_role\": \"车主本人\", \"issue_category\": \"无障碍服务投诉\", \"urgency_level\": \"CRITICAL\", \"event_summary\": \"轮椅车主预约10:30保养到店，发现东侧无障碍坡道被试驾车与物料完全阻挡无法进入，车主13:00有医院复查行程，现场极度紧迫。已拍照存证。\", \"core_demand\": \"立即现场清障协助通行，并升级案件进行无障碍设施管理整改及正式调查回复\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "complaint_case_create",
+          "tool_call_id": "call_complaint_create_001",
+          "content": "{\"status\": \"success\", \"case_id\": \"TS2023102409081\", \"assigned_manager\": \"周经理（滨江服务中心值班店长）\", \"manager_phone\": \"139****8821\", \"onsite_dispatch_status\": \"DISPATCHED_IMMEDIATELY\", \"sla_response_time\": \"24小时内正式答复\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "已为您完成最高优先级调度与立案：\n\n1. **现场即时响应**：系统已向滨江服务中心周经理（值班店长）下发极速响应指令，现场工作人员正在奔赴东侧坡道为您挪车清障并协助您入店，预计 1-2 分钟内到达您身边。\n2. **案件升级与跟进**：已为您生成无障碍服务专项投诉工单（工单号：`TS2023102409081`）。按照服务规范，受理投诉代表我们已启动正式调查程序，总部服务质量组将在核查现场监控及工单记录后，于 **24小时内** 由专人向您致电反馈整改评估与处理结果。\n\n请您稍候片刻，现场人员马上与您对接。"
+        },
+        {
+          "role": "user",
+          "content": "店长和两个师傅已经跑出来了，正在挪车并推我进接待厅了。行，现场先这样，后续的整改答复你们按工单时限打我电话。"
+        },
+        {
+          "role": "assistant",
+          "content": "收到，得知现场已为您顺利疏通并接入接待厅我就放心了。请您安心进行车辆保养，切勿耽误下午的医院行程。本次无障碍通道受阻问题已进入独立调查程序，专职负责人会在 24 小时内向您回访调查与整改进展。祝您就医与出行一切顺利！"
+        }
+      ],
+      "base_seed_id": "cat7_val_002",
+      "variation_name": "情绪焦急/时间紧迫型",
+      "generated_by_model": "gemini-3.7-flash-medium"
+    }
+  ]
+}

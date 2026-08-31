@@ -1,0 +1,100 @@
+{
+  "category_id": 1,
+  "category_name": "用车与智能功能支持",
+  "sample_rate": "5%",
+  "sample_count": 1,
+  "total_valid_dataset": 8,
+  "sampled_data": [
+    {
+      "seed_id": "cat1_val_002_var0",
+      "scenario_type": "tool_use",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "vehicle_feature_query",
+            "description": "查询指定车型、年款及软件版本下的功能配置支持情况与车机设置路径",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "model_name": {
+                  "type": "string",
+                  "description": "车型名称，如 G7、ET5 等"
+                },
+                "model_year": {
+                  "type": "string",
+                  "description": "车辆年款，如 2023、2024"
+                },
+                "trim_level": {
+                  "type": "string",
+                  "description": "车型配置版本，如 Pro、Max、Ultra"
+                },
+                "software_version": {
+                  "type": "string",
+                  "description": "当前车机软件版本系统代号"
+                }
+              },
+              "required": [
+                "model_name",
+                "model_year"
+              ]
+            }
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是智能汽车官方客服助手。涉及车辆功能配置差异及操作指引时，必须基于客观配置事实与用户手册提供分步指导。严禁虚构车辆能力，且严禁引导客户在车辆行驶过程中操作车机屏幕。"
+        },
+        {
+          "role": "user",
+          "content": "客服在吗？我赶着去开会，刚才把车停在路边窄车位锁车，回头一看后视镜根本没自动折叠！旁边车来车往的蹭掉怎么办？赶紧告诉我怎么弄！"
+        },
+        {
+          "role": "assistant",
+          "content": "您好，请您先别着急！后视镜折叠功能随车型年款和软件版本会有配置或设置差异。为了以最快速度为您核对并提供解决方案，请问您的车型年款以及具体的配置版本（例如：2023款 G7 Max）是什么？"
+        },
+        {
+          "role": "user",
+          "content": "我是2023款 G7 Max，车机版本是OS 3.2。我现在人就在车旁边，你快查查！"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_feat_check_001",
+              "type": "function",
+              "function": {
+                "name": "vehicle_feature_query",
+                "arguments": "{\"model_name\": \"G7\", \"model_year\": \"2023\", \"trim_level\": \"Max\", \"software_version\": \"OS 3.2\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "vehicle_feature_query",
+          "tool_call_id": "call_feat_check_001",
+          "content": "{\"model\": \"2023款 G7 Max\", \"feature_name\": \"锁车外后视镜自动折叠\", \"is_supported\": true, \"screen_setting_path\": \"中控屏【车辆控制】->【后视镜与车窗】-> 开启【锁车自动折叠】\", \"manual_shortcut\": \"主驾门板扶手处配有物理折叠按键，长按1秒可强制折叠\", \"safety_reminder\": \"仅在车辆处于P挡静止状态下操作车机\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "已为您极速核实，您的 2023款 G7 Max 原厂标配该功能。为避免耽误您的会议，请在车辆安全驻车（P挡）状态下按以下两步处理：\n\n1. **应急快速收起（防刮蹭）**：直接按一下主驾驶门板扶手前端的【后视镜折叠物理按键】，后视镜会立即收拢，您可以先安心去开会；\n2. **永久开启自动功能**：在中控屏点击【车辆控制】->【后视镜与车窗】，确认将【锁车自动折叠】开关开启。\n\n您可以先按门板实体键收起后视镜，锁车即可离开。"
+        },
+        {
+          "role": "user",
+          "content": "按门板按键已经收进去了！我上车看了一眼屏幕，那个“锁车自动折叠”不知道什么时候被关掉了，我已经重新打开，重新试了下钥匙锁车，现在能自动折叠了！"
+        },
+        {
+          "role": "assistant",
+          "content": "太好了，功能恢复正常就好！后续只要开关保持开启，每次离车锁车都会自动收折保护。您安心去开会，祝您会议顺利，用车愉快！"
+        }
+      ],
+      "base_seed_id": "cat1_val_002",
+      "variation_name": "情绪焦急/时间紧迫型",
+      "generated_by_model": "gemini-3.7-flash-medium"
+    }
+  ]
+}
