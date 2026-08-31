@@ -1,195 +1,377 @@
 """
-Category 1 全量数据合成与质检入库流水线 (5 路并发 + 双模型对半分担)
+智能汽车客服助手 - 全场景数据合成与质检入库流水线 (Category 1~8 通用版)
+- 特性 1: 1 Seed -> 5 种正交多样性变体 (80 Seeds -> 400 条 SFT 样本)
+- 特性 2: 50 路超高异步并发 (asyncio.Semaphore(50))
+- 特性 3: 双模型全双工真并发 (Qwen 与 Gemini 任务交替调度，同时满载并发)
+- 特性 4: Qwen 模型池动态轮询 (Round-Robin 轮询 LLM_DEFAULT_MODEL_*，分散额度与 TPM 压力)
+- 特性 5: 场景断点续写与幂等跳过 (已生成达标的场景自动跳过，支持随时恢复重试)
+- 特性 6: L1 自动初筛 + 5% 抽检归档 + Token 保护交互确认 (yes/no)
 """
 
+import asyncio
 import json
 import os
 import random
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from config.prompt import SFTDataGeneratorPrompt
-from config.data_format_checker import DataFormatChecker
+from utils.data_format_checker import DataFormatChecker
+from utils.logger import logger
 
-# 加载配置
+# 1. 加载配置与模型池
 load_dotenv(override=True)
 
-qwen_client = OpenAI(
-    api_key=os.getenv("QWEN_API_KEY"),
-    base_url=os.getenv("QWEN_API_BASE")
-)
-qwen_model = os.getenv("LLM_DEFAULT_MODEL_5", "qwen3.8-flash")
+# 自动收集 .env 中的百炼模型池 (LLM_DEFAULT_MODEL_*)
+QWEN_MODEL_POOL = [
+    os.getenv(k).strip()
+    for k in sorted(os.environ.keys())
+    if k.startswith("LLM_DEFAULT_MODEL_") and os.getenv(k) and os.getenv(k).strip()
+]
+if not QWEN_MODEL_POOL:
+    QWEN_MODEL_POOL = ["qwen3.8-flash"]
 
-gemini_client = OpenAI(
+# 初始化异步客户端
+qwen_client = AsyncOpenAI(
+    api_key=os.getenv("QWEN_API_KEY"),
+    base_url=os.getenv("QWEN_API_BASE"),
+    timeout=60.0,
+)
+
+gemini_client = AsyncOpenAI(
     api_key=os.getenv("Gemini_API_KEY"),
-    base_url=os.getenv("Gemini_BASE_URL")
+    base_url=os.getenv("Gemini_BASE_URL"),
+    timeout=60.0,
 )
 gemini_model = os.getenv("Gemini_MODEL_NAME", "gemini-3.7-flash-medium")
 
-# 1. 收集 Category 1 的全部种子 (80 条)
-seed_dir = r"data/v2/seeds/train"
-cat1_files = [
-    os.path.join(seed_dir, "category1_user_features_001_010.jsonl"),
-    os.path.join(seed_dir, "category1_user_features_011_020.jsonl"),
-    os.path.join(seed_dir, "category1_expanded_021_080.jsonl"),
-]
+CONCURRENCY_LIMIT = 50
+MAX_RETRY_ROUNDS = 3
+VARIATIONS_PER_SEED = 5
+OUTPUT_DIR = "data/v2/sft"
+SEEDS_DIR = "data/v2/seeds/train"
 
-all_seeds = []
-for fpath in cat1_files:
-    if os.path.exists(fpath):
+CATEGORY_MAP = {
+    1: "用车与智能功能支持",
+    2: "服务政策与权益咨询",
+    3: "故障初判与技术答疑",
+    4: "维保预约与进店接待",
+    5: "维修进度与交车服务",
+    6: "救援与保险理赔协同",
+    7: "抱怨与升级投诉处理",
+    8: "老客关怀与服务运营",
+}
+
+
+def load_category_seeds(cat_id: int) -> List[Dict[str, Any]]:
+    """
+    收集指定 Category 的全部 80 条种子
+    """
+    seeds = []
+    if not os.path.exists(SEEDS_DIR):
+        logger.error(f"种子目录不存在: {SEEDS_DIR}")
+        return seeds
+
+    # 匹配 category{cat_id}_ 开头的所有 jsonl 文件
+    prefix = f"category{cat_id}_"
+    matched_files = [
+        os.path.join(SEEDS_DIR, f)
+        for f in os.listdir(SEEDS_DIR)
+        if f.startswith(prefix) and f.endswith(".jsonl")
+    ]
+    matched_files.sort()
+
+    for fpath in matched_files:
         with open(fpath, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
-                    all_seeds.append(json.loads(line))
+                    seeds.append(json.loads(line))
 
-print(f"==================================================")
-print(f"成功加载 Category 1 种子总数: {len(all_seeds)} 条")
-print(f"调度策略: 5 路并发 | 对半分担 (前 {len(all_seeds)//2} 条 -> Qwen, 后 {len(all_seeds) - len(all_seeds)//2} 条 -> Gemini)")
-print(f"==================================================\n")
+    return seeds
 
-# 2. 单条任务执行函数
-def process_single_seed(seed_item: Dict[str, Any], model_type: str) -> Dict[str, Any]:
-    seed_id = seed_item.get("seed_id", "UNKNOWN")
-    payload = SFTDataGeneratorPrompt.get_generator_payload(seed_item)
-    
+
+def is_category_completed(cat_id: int, expected_count: int = 400) -> bool:
+    """
+    检查该 Category 是否已在本地完整生成
+    """
+    sft_file_path = os.path.join(OUTPUT_DIR, f"category{cat_id}_sft_dataset.jsonl")
+    if not os.path.exists(sft_file_path):
+        return False
+
+    line_count = 0
+    with open(sft_file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                line_count += 1
+
+    return line_count >= expected_count
+
+
+async def generate_single_sample_async(
+    semaphore: asyncio.Semaphore,
+    seed_item: Dict[str, Any],
+    variation_idx: int,
+    model_type: str,
+    qwen_model_name: str,
+    attempt: int = 1,
+) -> Dict[str, Any]:
+    """
+    单条样本异步生成任务（独立异常捕获与隔离）
+    """
+    base_seed_id = seed_item.get("seed_id", "UNKNOWN")
+    task_id = f"{base_seed_id}_var{variation_idx}"
+    var_meta = SFTDataGeneratorPrompt.ORTHOGONAL_VARIATIONS[variation_idx]
+
     client = qwen_client if model_type == "Qwen" else gemini_client
-    model_name = qwen_model if model_type == "Qwen" else gemini_model
-    
+    model_name = qwen_model_name if model_type == "Qwen" else gemini_model
+
+    payload = SFTDataGeneratorPrompt.get_generator_payload(seed_item, variation_idx=variation_idx)
     kwargs = {
         "model": model_name,
         "messages": payload,
-        "temperature": 0.7,
-        "response_format": {"type": "json_object"}
+        "temperature": 0.75,
+        "response_format": {"type": "json_object"},
     }
     if model_type == "Qwen":
         kwargs["extra_body"] = {"enable_thinking": False}
 
-    t0 = time.perf_counter()
-    try:
-        resp = client.chat.completions.create(**kwargs)
-        latency = time.perf_counter() - t0
+    async with semaphore:
+        t0 = time.perf_counter()
+        try:
+            resp = await client.chat.completions.create(**kwargs)
+            latency = time.perf_counter() - t0
 
-        content = resp.choices[0].message.content.strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
+            content = resp.choices[0].message.content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
 
-        parsed_data = json.loads(content)
-        if isinstance(parsed_data, list) and len(parsed_data) > 0 and isinstance(parsed_data[0], dict):
-            parsed_data = parsed_data[0]
+            parsed_data = json.loads(content)
+            if isinstance(parsed_data, list) and len(parsed_data) > 0 and isinstance(parsed_data[0], dict):
+                parsed_data = parsed_data[0]
 
-        is_valid, errors, warnings = DataFormatChecker.check_sample(parsed_data)
-        tokens = resp.usage.completion_tokens if resp.usage else 0
+            parsed_data["seed_id"] = task_id
+            parsed_data["base_seed_id"] = base_seed_id
+            parsed_data["variation_name"] = var_meta["name"]
+            parsed_data["generated_by_model"] = model_name
 
-        return {
-            "status": "SUCCESS",
-            "seed_id": seed_id,
-            "model_type": model_type,
-            "model_name": model_name,
-            "latency": latency,
-            "tokens": tokens,
-            "is_valid": is_valid,
-            "errors": errors,
-            "warnings": warnings,
-            "data": parsed_data
-        }
-    except Exception as e:
-        latency = time.perf_counter() - t0
-        return {
-            "status": "FAILED",
-            "seed_id": seed_id,
-            "model_type": model_type,
-            "model_name": model_name,
-            "latency": latency,
-            "error_msg": str(e),
-            "is_valid": False,
-            "data": None
-        }
+            is_valid, errors, warnings = DataFormatChecker.check_sample(parsed_data)
+            tokens = resp.usage.completion_tokens if resp.usage else 0
+
+            if is_valid:
+                logger.info(
+                    f"[PASS] {task_id:24s} | 模型: {model_name:24s} | 耗时: {latency:.2f}s"
+                )
+                return {
+                    "status": "SUCCESS",
+                    "task_id": task_id,
+                    "seed_item": seed_item,
+                    "variation_idx": variation_idx,
+                    "model_type": model_type,
+                    "model_name": model_name,
+                    "latency": latency,
+                    "tokens": tokens,
+                    "is_valid": True,
+                    "errors": [],
+                    "warnings": warnings,
+                    "data": parsed_data,
+                }
+            else:
+                logger.warning(f"[FAIL-FORMAT] {task_id} | 格式未通过: {errors}")
+                return {
+                    "status": "FORMAT_ERROR",
+                    "task_id": task_id,
+                    "seed_item": seed_item,
+                    "variation_idx": variation_idx,
+                    "model_type": model_type,
+                    "model_name": model_name,
+                    "latency": latency,
+                    "is_valid": False,
+                    "errors": errors,
+                    "data": None,
+                }
+
+        except Exception as e:
+            latency = time.perf_counter() - t0
+            logger.error(f"[ERROR-API] {task_id} | 模型: {model_name} | 异常: {e}")
+            return {
+                "status": "API_ERROR",
+                "task_id": task_id,
+                "seed_item": seed_item,
+                "variation_idx": variation_idx,
+                "model_type": model_type,
+                "model_name": model_name,
+                "latency": latency,
+                "is_valid": False,
+                "errors": [f"API异常: {str(e)}"],
+                "data": None,
+            }
 
 
-# 3. 分配任务并以 5 路并发执行
-half_idx = len(all_seeds) // 2
-tasks = []
-for idx, seed in enumerate(all_seeds):
-    m_type = "Qwen" if idx < half_idx else "Gemini"
-    tasks.append((seed, m_type))
+async def process_category(cat_id: int, semaphore: asyncio.Semaphore) -> bool:
+    """
+    处理单个 Category 的完整生命周期
+    """
+    cat_name = CATEGORY_MAP.get(cat_id, f"Category {cat_id}")
+    sft_file_path = os.path.join(OUTPUT_DIR, f"category{cat_id}_sft_dataset.jsonl")
+    sample_5pct_path = os.path.join(OUTPUT_DIR, f"category{cat_id}_sft_samples_5pct.json")
 
-output_dir = "data/v2/sft"
-os.makedirs(output_dir, exist_ok=True)
-sft_file_path = os.path.join(output_dir, "category1_sft_dataset.jsonl")
-sample_5pct_path = os.path.join(output_dir, "category1_sft_samples_5pct.json")
+    # 1. 检查是否已有缓存数据（断点续写支持）
+    if is_category_completed(cat_id, expected_count=400):
+        logger.info(f"⏩ 【Category {cat_id} - {cat_name}】已存在完整数据集（>= 400条），自动跳过！")
+        return True
 
-all_results = []
-valid_dataset = []
-failed_records = []
+    seeds = load_category_seeds(cat_id)
+    total_seeds = len(seeds)
+    total_tasks = total_seeds * VARIATIONS_PER_SEED
 
-start_total_time = time.perf_counter()
+    if total_seeds == 0:
+        logger.warning(f"Category {cat_id} 未找到种子文件，跳过。")
+        return True
 
-print(">>> 开始 5 路并发执行批量数据合成...")
-with ThreadPoolExecutor(max_workers=5) as executor:
-    future_to_seed = {
-        executor.submit(process_single_seed, seed, m_type): (seed.get("seed_id"), m_type)
-        for seed, m_type in tasks
-    }
+    logger.info("=" * 70)
+    logger.info(f"🚀 开始生成【Category {cat_id} - {cat_name}】")
+    logger.info(f"1. 种子数: {total_seeds} 条 | 变体倍数: {VARIATIONS_PER_SEED} | 规划样本: {total_tasks} 条")
+    logger.info(f"2. 异步并发数: {CONCURRENCY_LIMIT} 路 | 双模型全双工并行")
+    logger.info(f"3. Qwen 模型轮询池 ({len(QWEN_MODEL_POOL)} 个): {QWEN_MODEL_POOL}")
+    logger.info(f"4. Gemini 模型: {gemini_model}")
+    logger.info("=" * 70)
 
-    finished_count = 0
-    total_tasks = len(tasks)
+    # 2. 构造交替真并行任务列表 (Qwen, Gemini, Qwen, Gemini...)
+    raw_tasks = []
+    for seed in seeds:
+        for v_idx in range(VARIATIONS_PER_SEED):
+            raw_tasks.append((seed, v_idx))
 
-    for future in as_completed(future_to_seed):
-        finished_count += 1
-        res = future.result()
-        all_results.append(res)
+    # 交替分配模型与 Qwen 轮询模型名
+    pending_tasks = []
+    for idx, (seed, v_idx) in enumerate(raw_tasks):
+        m_type = "Qwen" if (idx % 2 == 0) else "Gemini"
+        # 轮询从 Qwen 池中选模型
+        q_model = QWEN_MODEL_POOL[(idx // 2) % len(QWEN_MODEL_POOL)]
+        pending_tasks.append((seed, v_idx, m_type, q_model))
+
+    valid_results: Dict[str, Dict[str, Any]] = {}
+    failed_history: List[Dict[str, Any]] = []
+
+    start_total_time = time.perf_counter()
+
+    # 3. 异步并发与自动重试循环
+    for round_idx in range(1, MAX_RETRY_ROUNDS + 1):
+        if not pending_tasks:
+            break
+
+        logger.info(f"\n>>> [Category {cat_id}] 开始第 {round_idx}/{MAX_RETRY_ROUNDS} 轮批处理 (待生成: {len(pending_tasks)} 条) <<<")
+
+        coroutines = [
+            generate_single_sample_async(
+                semaphore, seed, v_idx, m_type, q_model, attempt=round_idx
+            )
+            for seed, v_idx, m_type, q_model in pending_tasks
+        ]
+
+        batch_results = await asyncio.gather(*coroutines, return_exceptions=False)
+
+        next_pending = []
+        for idx, res in enumerate(batch_results):
+            tid = res["task_id"]
+            if res["is_valid"] and res["data"] is not None:
+                valid_results[tid] = res["data"]
+            else:
+                failed_history.append(res)
+                # 失败换对侧模型
+                alt_model = "Gemini" if res["model_type"] == "Qwen" else "Qwen"
+                q_model = QWEN_MODEL_POOL[idx % len(QWEN_MODEL_POOL)]
+                next_pending.append((res["seed_item"], res["variation_idx"], alt_model, q_model))
+
+        pending_tasks = next_pending
+        if pending_tasks and round_idx < MAX_RETRY_ROUNDS:
+            logger.warning(
+                f"[Category {cat_id}] 第 {round_idx} 轮完成，有 {len(pending_tasks)} 条未通过，自动切换模型进入第 {round_idx+1} 轮重试..."
+            )
+
+    total_elapsed = time.perf_counter() - start_total_time
+
+    # 4. 写入 SFT 数据集
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    valid_list = list(valid_results.values())
+    with open(sft_file_path, "w", encoding="utf-8") as f:
+        for item in valid_list:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    # 5. 抽取 5% 样本供质检审查
+    random.seed(42)
+    sample_size = max(1, int(len(valid_list) * 0.05))
+    sampled_items = random.sample(valid_list, sample_size) if len(valid_list) >= sample_size else valid_list
+
+    with open(sample_5pct_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "category_id": cat_id,
+                "category_name": cat_name,
+                "sample_rate": "5%",
+                "sample_count": len(sampled_items),
+                "total_valid_dataset": len(valid_list),
+                "sampled_data": sampled_items,
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    # 6. 报告汇总
+    logger.info("\n" + "=" * 70)
+    logger.info(f"【Category {cat_id} - {cat_name} 汇总报告】")
+    logger.info("=" * 70)
+    logger.info(f"1. 规划样本总数: {total_tasks} 条 (80 × 5)")
+    logger.info(f"2. 最终入库样本: {len(valid_list)} 条 (合格率: {len(valid_list)/total_tasks*100:.2f}%)")
+    logger.info(f"3. 历史重试拦截: {len(failed_history)} 次")
+    logger.info(f"4. 50路并发耗时 : {total_elapsed:.2f} 秒 (平均吞吐: {total_elapsed/total_tasks:.2f}s/条)")
+    logger.info(f"5. SFT 数据集  : {sft_file_path}")
+    logger.info(f"6. 5% 抽检文件 : {sample_5pct_path}")
+    logger.info("=" * 70)
+
+    return True
+
+
+async def main():
+    logger.info("=" * 70)
+    logger.info("🌟 智能汽车客服助手 - 全场景 SFT 数据集生产引擎启动")
+    logger.info(f"当前并发上限: {CONCURRENCY_LIMIT} 路 | 模式: 8 大场景循环 + 断点续写 + Token 交互保护")
+    logger.info("=" * 70)
+
+    semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
+
+    for cat_id in range(1, 9):
+        cat_name = CATEGORY_MAP[cat_id]
         
-        sid = res.get("seed_id")
-        m_type = res.get("model_type")
-        status = res.get("status")
-        valid = res.get("is_valid")
-        lat = res.get("latency", 0)
+        # 处理当前场景
+        success = await process_category(cat_id, semaphore)
+        
+        # 最后一个场景处理完后无需提示继续
+        if cat_id == 8:
+            logger.info("🎉 全部 8 大场景 SFT 数据集已全部构建完成！")
+            break
 
-        if status == "SUCCESS" and valid:
-            valid_dataset.append(res["data"])
-            print(f"[{finished_count:02d}/{total_tasks:02d}] [PASS] {sid} | 来自: {m_type:6s} | 耗时: {lat:.2f}s")
-        else:
-            failed_records.append(res)
-            err = res.get("errors") or res.get("error_msg")
-            print(f"[{finished_count:02d}/{total_tasks:02d}] [FAIL] {sid} | 来自: {m_type:6s} | 原因: {err}")
+        # 如果刚才该场景是刚生成的（不是秒过的），则进行交互式确认
+        print("\n" + "-" * 70)
+        user_choice = input(
+            f"🔔 [Token 保护确认] 【Category {cat_id} - {cat_name}】已处理完毕。\n"
+            f"👉 是否继续生成下一个场景【Category {cat_id+1} - {CATEGORY_MAP[cat_id+1]}】？(yes/no) [默认 no]: "
+        ).strip().lower()
+        print("-" * 70 + "\n")
 
-total_elapsed = time.perf_counter() - start_total_time
+        if user_choice not in {"yes", "y"}:
+            logger.info(f"用户选择暂停（输入 '{user_choice}'），流水线已在 Category {cat_id} 处安全停止，保护 Token 消耗。")
+            break
 
-# 4. 格式合格数据入库写入 jsonl
-with open(sft_file_path, "w", encoding="utf-8") as f:
-    for item in valid_dataset:
-        f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-# 5. 随机抽取 5% (约 4 条) 质检样本
-random.seed(42)
-sample_size = max(1, int(len(valid_dataset) * 0.05))
-sampled_items = random.sample(valid_dataset, sample_size) if len(valid_dataset) >= sample_size else valid_dataset
-
-# 附带对应的元数据保存
-with open(sample_5pct_path, "w", encoding="utf-8") as f:
-    json.dump({
-        "sample_rate": "5%",
-        "sample_count": len(sampled_items),
-        "total_valid_dataset": len(valid_dataset),
-        "sampled_data": sampled_items
-    }, f, ensure_ascii=False, indent=2)
-
-print("\n==================================================")
-print("【Category 1 数据工程与初筛完成汇总报告】")
-print("==================================================")
-print(f"1. 种子总数       : {len(all_seeds)} 条")
-print(f"2. 成功入库样本   : {len(valid_dataset)} 条 (合格率: {len(valid_dataset)/len(all_seeds)*100:.2f}%)")
-print(f"3. 失败/异常样本  : {len(failed_records)} 条")
-print(f"4. 5路并发总耗时  : {total_elapsed:.2f} 秒 (平均单条: {total_elapsed/len(all_seeds):.2f}s)")
-print(f"5. 全量SFT入库路径: {sft_file_path}")
-print(f"6. 5%抽检文件路径 : {sample_5pct_path}")
-print("==================================================")
+if __name__ == "__main__":
+    asyncio.run(main())

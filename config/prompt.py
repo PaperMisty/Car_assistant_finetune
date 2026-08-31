@@ -173,13 +173,44 @@ class SFTDataGeneratorPrompt:
         ]
     }
 
+    # 5 组正交多样性扰动指令（用于单 Seed 扩充 5 种异构对话）
+    ORTHOGONAL_VARIATIONS = [
+        {
+            "id": "var_0_anxious_fast",
+            "name": "情绪焦急/时间紧迫型",
+            "instruction": "【客户画像与风格要求】客户情绪较为急躁、担心行程耽误，语气较为催促；客服必须在第一轮给出极具安抚性的回应，并单刀直入提供最高优先级的核心排查步骤，语言精炼干练。"
+        },
+        {
+            "id": "var_1_novice_detailed",
+            "name": "新手小白/通俗引导型",
+            "instruction": "【客户画像与风格要求】客户对车机功能或专业术语不熟悉，首轮描述较为口语化甚至有点模糊；客服必须使用通俗生动的日常语言（避免生硬工业术语），按照‘第一步、第二步’提供保姆级、手把手的循序渐进操作指引。"
+        },
+        {
+            "id": "var_2_misoperation_correction",
+            "name": "先入为主/误操作纠偏型",
+            "instruction": "【客户画像与风格要求】客户首轮提到自己尝试过某种错误的操作（如盲目拔插硬件、误改了无关系统设置等）但依然失败，带有干扰性前置条件；客服需先温和礼貌地纠正客户的认知误区，然后引导客户回到正规的排障流程中完成闭环。"
+        },
+        {
+            "id": "var_3_environmental_context",
+            "name": "真实出行/环境情境化型",
+            "instruction": "【客户画像与风格要求】对话需融入生动的真实用车场景细节（如地库弱信号、暴雨天气、高速服务区赶路、冬季寒冷、赶着接送孩子等具体情境）；客服在排障之余体现出人性化的场景关怀（如雨天注意防滑、地库注意照明安全等），对话极具生活气息。"
+        },
+        {
+            "id": "var_4_tech_concise",
+            "name": "专业极客/高效利落型",
+            "instruction": "【客户画像与风格要求】客户表达言简意赅、逻辑清晰，首轮直接说明故障现象和车辆当前状态；客服展现出极高的专业素养，迅速精准匹配系统机理或工具调用，排查流程干脆利落、高效闭环收尾。"
+        }
+    ]
+
     @classmethod
-    def build_user_prompt(cls, seed: Dict[str, Any]) -> str:
+    def build_user_prompt(cls, seed: Dict[str, Any], variation_idx: int = 0) -> str:
         """
-        根据传入的单条 Seed 字典，构造完整的 Generator User Prompt
+        根据传入的单条 Seed 字典与正交扰动索引 (0~4)，构造完整的 Generator User Prompt
         """
         is_tool = seed.get("tool_required", False)
         example = cls.FEW_SHOT_TOOL_EXAMPLE if is_tool else cls.FEW_SHOT_CONVERSATION_EXAMPLE
+
+        var_config = cls.ORTHOGONAL_VARIATIONS[variation_idx % len(cls.ORTHOGONAL_VARIATIONS)]
 
         prompt = f"""请根据以下提供的【业务种子（Seed）】，合成一条符合标准微调格式的 SFT 数据。
 
@@ -188,26 +219,31 @@ class SFTDataGeneratorPrompt:
 {json.dumps(seed, ensure_ascii=False, indent=2)}
 ```
 
+### 【本次正交风格扰动要求（Diversity Injection）】
+- 变体模式: 【{var_config['name']}】
+- 具体指引: {var_config['instruction']}
+
 ### 【参考范例（Few-Shot）】
 ```json
 {json.dumps(example, ensure_ascii=False, indent=2)}
 ```
 
 ### 【生成特别要求】
-1. **自然克制追问**：单轮追问严禁超过 2 个问题，口吻温和自然，严禁像填表一样罗列问卷；
-2. **上下文消重**：严禁追问客户在上一轮已经提及的信息；
-3. **闭环完整性**：对话必须包含【提问 -> 追问/调工具 -> 方案指导 -> 客户反馈执行结果 -> 客服确认收尾】的完整闭环；
-4. **守住红线**：严禁触犯 `prohibited_actions`；
-5. 严格直接输出标准合法的 JSON 格式。
+1. **体现正交风格**：必须充分体现上述【{var_config['name']}】的对话特征与交互逻辑，杜绝千篇一律的机械复读；
+2. **自然克制追问**：单轮追问严禁超过 2 个问题，口吻温和自然，严禁像填表一样罗列问卷；
+3. **上下文消重**：严禁追问客户在上一轮已经提及的信息；
+4. **闭环完整性**：对话必须包含【提问 -> 追问/调工具 -> 方案指导 -> 客户反馈执行结果 -> 客服确认收尾】的完整闭环；
+5. **守住红线**：严禁触犯 `prohibited_actions`；
+6. 严格直接输出标准合法的 JSON 格式。
 """
         return prompt
 
     @classmethod
-    def get_generator_payload(cls, seed: Dict[str, Any]) -> List[Dict[str, str]]:
+    def get_generator_payload(cls, seed: Dict[str, Any], variation_idx: int = 0) -> List[Dict[str, str]]:
         """
-        获取直接可用于调用大模型 API 的 messages 结构
+        获取直接可用于调用大模型 API 的 messages 结构（支持正交扰动索引 0~4）
         """
         return [
             {"role": "system", "content": cls.GENERATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": cls.build_user_prompt(seed)},
+            {"role": "user", "content": cls.build_user_prompt(seed, variation_idx=variation_idx)},
         ]
