@@ -192,21 +192,24 @@ def main(config: SFTTrainConfig = default_train_config):
         trust_remote_code=config.model.trust_remote_code,
     )
 
-    # 3. 注入标准 ChatML 对话模版 (自适应兼顾 qwen-2.5 / chatml)
-    logger.info("【Step 2/5】配置 Qwen ChatML 对话模板")
-    try:
-        tokenizer = get_chat_template(
-            tokenizer,
-            chat_template=config.data.chat_template,
-            mapping={"role": "role", "content": "content", "user": "user", "assistant": "assistant"},
-        )
-    except Exception as e:
-        logger.warning(f"指定模板 '{config.data.chat_template}' 无法直接加载 ({e})，正在自动回退到 'chatml' 官方标准模板...")
-        tokenizer = get_chat_template(
-            tokenizer,
-            chat_template="chatml",
-            mapping={"role": "role", "content": "content", "user": "user", "assistant": "assistant"},
-        )
+    # 3. 注入/验证标准 ChatML 对话模版 (优先使用 Qwen3 官方自带的增强 ChatML 模版)
+    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template:
+        logger.info("【Step 2/5】检测到 Qwen3 模型已自带官方原生 ChatML/ToolCalling 模版，直接启用原生模版")
+    else:
+        logger.info("【Step 2/5】模型未内置模版，通过 Unsloth 配置标准 ChatML 模版")
+        try:
+            tokenizer = get_chat_template(
+                tokenizer,
+                chat_template=config.data.chat_template,
+                mapping={"role": "role", "content": "content", "user": "user", "assistant": "assistant"},
+            )
+        except Exception as e:
+            logger.warning(f"指定模板 '{config.data.chat_template}' 无法直接加载 ({e})，正在自动回退到 'chatml' 官方标准模板...")
+            tokenizer = get_chat_template(
+                tokenizer,
+                chat_template="chatml",
+                mapping={"role": "role", "content": "content", "user": "user", "assistant": "assistant"},
+            )
 
     def formatting_prompts_func(examples):
         """
