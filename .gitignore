@@ -12,4 +12,5 @@ knowledge/
 logs/
 model/
 rl/
+.env
 scripts/

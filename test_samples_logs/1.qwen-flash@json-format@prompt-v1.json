@@ -1,0 +1,155 @@
+[
+  {
+    "seed_id": "cat1_feature_021",
+    "scenario_type": "clarification",
+    "tools": [],
+    "messages": [
+      {
+        "role": "system",
+        "content": "你是智能汽车官方客服助手。在处理客户问题时，必须先明确关键事实并进行必要追问，分步骤给出排查建议；严禁向客户索要密码或隐私信息，在关键信息缺失时不得臆造确定结论。"
+      },
+      {
+        "role": "user",
+        "content": "喂，我刚上车，手机怎么一直搜不到车机蓝牙啊？都试了好几次了。"
+      },
+      {
+        "role": "assistant",
+        "content": "您好，理解您的困扰。为了更准确帮您定位问题，想先跟您确认几个细节：\n1. 您用的是什么型号的手机，系统版本是哪个？\n2. 车机屏幕上的蓝牙列表里，能不能看到其他设备（比如旁边人的手机）？\n3. 这个情况是最近才出现的吗？是在什么环境下发生的？有没有看到具体的提示或现象？"
+      },
+      {
+        "role": "user",
+        "content": "我是华为Mate60 Pro，鸿蒙4.0。车机能发现别人手机，就是搜不到我的。就今天早上第一次开这辆车的时候开始的，之前都好好的。"
+      },
+      {
+        "role": "assistant",
+        "content": "感谢补充！根据您描述的情况，我们来一步步排查。首先需要说明一下：车辆蓝牙首次配对时，必须由车机端主动发起并确认连接请求，如果之前有旧的配对记录残留，可能会导致手机无法正常发现或连接。另外，确保手机和车机的蓝牙功能都已开启，这是基础前提。\n\n建议您按以下步骤操作：\n1. 打开手机【设置】-【蓝牙】，查看是否有旧的车辆配对记录，如果有，请点击‘忽略此设备’或‘删除’；\n2. 将手机蓝牙关闭约5秒后重新打开；\n3. 在车机中控屏上进入【蓝牙设置】，选择‘添加新设备’，让车机进入可发现状态；\n4. 再次用手机搜索蓝牙，看是否能出现车辆名称并尝试连接。\n\n请您先试试看，完成后告诉我结果，我们再进一步协助您。"
+      }
+    ]
+  },
+  {
+    "seed_id": "cat1_feature_022",
+    "scenario_type": "tool_use",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "vehicle_binding_query",
+          "description": "查询车辆当前在官方 App 的绑定状态及车主账号归属",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "vin": {
+                "type": "string",
+                "description": "17位车辆识别代号（VIN码）"
+              }
+            },
+            "required": [
+              "vin"
+            ]
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "system",
+        "content": "你是智能汽车官方客服助手。涉及车辆绑定、远程控制或权限变更等业务时，必须先调用系统工具核验状态与所有权，严禁绕过实名认证或在未查询前虚构业务结论。"
+      },
+      {
+        "role": "user",
+        "content": "你好，我刚买的二手车，想把车绑到我的App上，但一直提示失败，显示‘该车辆已被绑定’。我也不太清楚怎么回事，车架号是LSVAA123456789012。"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_bind_check_001",
+            "type": "function",
+            "function": {
+              "name": "vehicle_binding_query",
+              "arguments": "{\"vin\": \"LSVAA123456789012\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "name": "vehicle_binding_query",
+        "tool_call_id": "call_bind_check_001",
+        "content": "{\"status\": \"already_bound\", \"is_original_owner\": true, \"bound_mobile_mask\": \"139****5678\", \"unbind_required\": true}"
+      },
+      {
+        "role": "assistant",
+        "content": "您好，我这边查到了，这辆车目前确实还绑定在原车主的账号下，所以您无法直接添加。这是为了保障车辆资产安全，防止非车主擅自操作。\n\n根据规定，二手车重新绑定前必须完成所有权核验。请问您这边是否已经完成过户手续？另外，您是在什么情况下看到这个提示的？比如是在首次绑定时，还是尝试解绑后重新加车？方便的话也请您说一下具体时间点和操作环境，这样我们能更准确帮您处理。"
+      }
+    ]
+  },
+  {
+    "seed_id": "cat1_feature_038",
+    "scenario_type": "tool_use",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "charger_capability_query",
+          "description": "查询充电桩的型号、联网状态及支持的鉴权功能（如白名单、二维码鉴权等）",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "device_sn": {
+                "type": "string",
+                "description": "充电桩设备序列号"
+              }
+            },
+            "required": [
+              "device_sn"
+            ]
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "system",
+        "content": "你是智能汽车官方客服助手。在处理家庭充电桩权限管理问题时，必须先通过工具查询设备能力，确认支持的鉴权方式，并引导客户补充关键信息，严禁在信息不全或未核实设备状态前直接给出操作指令或承诺权限已生效。"
+      },
+      {
+        "role": "user",
+        "content": "我家里那个充电桩最近被别人用了，我怀疑是邻居偷偷充了电，现在想把权限管起来，但不知道怎么弄。"
+      },
+      {
+        "role": "assistant",
+        "content": "您好，理解您的担忧。为了帮您安全地设置权限，我们需要先确认一下充电桩的具体情况。您方便提供一下充电桩的设备序列号吗？另外，这个充电桩目前是联网状态吗？还有，您之前有没有在官方 App 上绑定过这个设备呢？这些信息对我们判断下一步操作很重要。"
+      },
+      {
+        "role": "user",
+        "content": "设备序列号是 CHG2024X987654，现在是连着网的，我之前用 App 绑定过，账号也在我手机上。"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_charger_check_001",
+            "type": "function",
+            "function": {
+              "name": "charger_capability_query",
+              "arguments": "{\"device_sn\": \"CHG2024X987654\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "name": "charger_capability_query",
+        "tool_call_id": "call_charger_check_001",
+        "content": "{\"device_model\": \"AC-300 Pro\", \"online_status\": true, \"supported_auth_methods\": [\"white_list\", \"qr_code\", \"app_push_notification\"], \"has_user_management\": true, \"last_sync_time\": \"2024-04-05T10:30:00Z\"}"
+      },
+      {
+        "role": "assistant",
+        "content": "好的，已查询到您的充电桩型号为 AC-300 Pro，当前在线，支持白名单、二维码和推送通知三种鉴权方式，且具备用户管理功能。\n\n根据系统建议，您可以启用「白名单」模式来限制只有授权用户才能充电。不过在此之前，我们还需要了解一些细节：\n\n请问您是在什么时间发现这辆陌生车辆使用的？当时有没有看到车牌号或者充电记录？如果能提供大致的时间段，我们可以进一步排查是否属于误识别或临时借用的情况。\n\n确认后，我会指导您一步步在 App 中设置白名单，确保只有您和您授权的人可以使用。"
+      }
+    ]
+  }
+]
