@@ -22,9 +22,11 @@ from typing import Any, Dict, List
 
 from datasets import Dataset
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainerControl, TrainerState, TrainingArguments
-from trl import SFTConfig, SFTTrainer
 
 from utils.logger import logger
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 
 # ==============================================================================
@@ -33,26 +35,28 @@ from utils.logger import logger
 CONFIG = {
     # 1. 模型与分词器基座配置
     "model_name_or_path": os.getenv("MODEL_PATH", "model/Qwen/models/Qwen--Qwen3-8B/snapshots/master"),
-    "max_seq_length": 2048,           # 最大序列长度 (P99 对话约 1700 Tokens，2048 足够且省显存)
-    "dtype": "bfloat16",              # RTX 4090 / 5090 开启原生 bfloat16
-    "load_in_4bit": False,            # False 为 BF16 LoRA 微调，True 为 4-bit QLoRA
+    "max_seq_length": 2048,  # 最大序列长度 (P99 对话约 1700 Tokens，2048 足够且省显存)
+    "dtype": "bfloat16",  # RTX 4090 / 5090 开启原生 bfloat16
+    "load_in_4bit": False,  # False 为 BF16 LoRA 微调，True 为 4-bit QLoRA
     "trust_remote_code": True,
-
     # 2. PEFT / LoRA 适配器配置 (All-Linear)
-    "lora_r": 16,                     # LoRA 秩 (Rank)
-    "lora_alpha": 32,                 # LoRA 缩放因子 Alpha
-    "lora_dropout": 0.0,              # Unsloth 推荐 0.0 以开启极致 Triton 算子融合加速
+    "lora_r": 16,  # LoRA 秩 (Rank)
+    "lora_alpha": 32,  # LoRA 缩放因子 Alpha
+    "lora_dropout": 0.0,  # Unsloth 推荐 0.0 以开启极致 Triton 算子融合加速
     "lora_bias": "none",
-    "target_modules": [               # 7 个全线性层全量施加
-        "q_proj", "k_proj", "v_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj"
+    "target_modules": [  # 7 个全线性层全量施加
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
     ],
     "use_gradient_checkpointing": "unsloth",
-
     # 3. 数据集路径
-    "train_dir": "data/v2/sft",         # SFT 训练集 (8 大场景 3,200 条)
-    "eval_dir": "data/v2/validation",   # 验证集 (8 大场景 160 条)
-
+    "train_dir": "data/v2/sft",  # SFT 训练集 (8 大场景 3,200 条)
+    "eval_dir": "data/v2/validation",  # 验证集 (8 大场景 160 条)
     # 4. 训练与批次超参 (Mini-Batch=2, Accum=8 -> 等效 Batch Size=16)
     "output_dir": "output/qwen_8b_lora_sft",
     "num_train_epochs": 3,
@@ -63,8 +67,7 @@ CONFIG = {
     "lr_scheduler_type": "cosine",
     "warmup_ratio": 0.05,
     "weight_decay": 0.01,
-    "optim": "adamw_torch",           # 可选 "adamw_8bit" 或 "adamw_torch"
-
+    "optim": "adamw_torch",  # 可选 "adamw_8bit" 或 "adamw_torch"
     # 5. 评估、保存与早停 (每 100 步评估一次)
     "logging_steps": 10,
     "eval_steps": 100,
@@ -73,11 +76,10 @@ CONFIG = {
     "load_best_model_at_end": True,
     "metric_for_best_model": "eval_loss",
     "greater_is_better": False,
-    "early_stopping_patience": 3,     # 连续 3 次 eval (300步) 未改善则自动早停
+    "early_stopping_patience": 3,  # 连续 3 次 eval (300步) 未改善则自动早停
     "early_stopping_threshold": 0.001,
-
     # 6. Loss 掩码与监控
-    "assistant_only_loss": True,      # 仅对 Assistant 计算损失，对 System/User/Tool 提示词自动掩码
+    "assistant_only_loss": True,  # 仅对 Assistant 计算损失，对 System/User/Tool 提示词自动掩码
     "report_to": "tensorboard",
     "seed": 42,
 }
@@ -102,7 +104,14 @@ class TrainingProgressCallback(TrainerCallback):
         logger.info("⏱️  训练进度监听器已激活 | 开始实时计算步耗时与剩余预计时间 (ETA)")
         logger.info("=" * 80)
 
-    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs: Dict[str, Any] = None, **kwargs):
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: Dict[str, Any] = None,
+        **kwargs,
+    ):
         if not logs or not self.start_time:
             return
 
@@ -135,15 +144,24 @@ class TrainingProgressCallback(TrainerCallback):
             log_parts.append(f"Train Loss: {train_loss:.4f}")
         if lr is not None:
             log_parts.append(f"LR: {lr:.2e}")
-        log_parts.extend([
-            f"已用: {elapsed_str}",
-            f"预计剩余 (ETA): {eta_str}",
-            f"速度: {1.0 / avg_time_per_step:.2f} step/s" if avg_time_per_step > 0 else ""
-        ])
+        log_parts.extend(
+            [
+                f"已用: {elapsed_str}",
+                f"预计剩余 (ETA): {eta_str}",
+                f"速度: {1.0 / avg_time_per_step:.2f} step/s" if avg_time_per_step > 0 else "",
+            ]
+        )
 
         logger.info(" | ".join([p for p in log_parts if p]))
 
-    def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, metrics: Dict[str, Any] = None, **kwargs):
+    def on_evaluate(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        metrics: Dict[str, Any] = None,
+        **kwargs,
+    ):
         if metrics:
             eval_loss = metrics.get("eval_loss", "N/A")
             eval_loss_str = f"{eval_loss:.4f}" if isinstance(eval_loss, (int, float)) else str(eval_loss)
@@ -166,25 +184,16 @@ def sanitize_messages_for_chat_template(messages: List[Dict[str, Any]]) -> List[
         tool_calls = msg.get("tool_calls")
 
         if role == "tool":
-            clean_msgs.append({
-                "role": "user",
-                "content": f"【系统工具返回数据】:\n{content}"
-            })
+            clean_msgs.append({"role": "user", "content": f"【系统工具返回数据】:\n{content}"})
         elif role == "assistant" and tool_calls:
             call_strs = [
                 f"<tool_call>\n{json.dumps({'name': tc.get('function', {}).get('name'), 'arguments': tc.get('function', {}).get('arguments')}, ensure_ascii=False)}\n</tool_call>"
                 for tc in tool_calls
             ]
             full_content = (content + "\n" + "\n".join(call_strs)).strip()
-            clean_msgs.append({
-                "role": "assistant",
-                "content": full_content
-            })
+            clean_msgs.append({"role": "assistant", "content": full_content})
         else:
-            clean_msgs.append({
-                "role": role,
-                "content": str(content)
-            })
+            clean_msgs.append({"role": role, "content": str(content)})
     return clean_msgs
 
 
@@ -229,19 +238,19 @@ def main():
     logger.info("🚀 智能汽车客服助手 Qwen-8B SFT LoRA 微调训练流水线启动")
     logger.info("=" * 80)
 
-    # 1. 动态按需导入 Unsloth
+    # 1. 动态导入 Unsloth 和 TRL (导入顺序关键: Unsloth 必须在 TRL 之前导入以完成 monkey-patch)
     try:
         from unsloth import FastLanguageModel
-        from unsloth.chat_templates import get_chat_template
     except ImportError:
         logger.error(
             '未检测到 unsloth 依赖库！在云端 GPU 服务器运行前，请先安装: pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"'
         )
         raise
+    from trl import SFTConfig, SFTTrainer  # 必须在 unsloth 之后导入!
 
-    # 2. 加载基座模型与 Tokenizer
+    # 2. 加载基座模型 (通过 Unsloth 享受 Triton 加速与显存优化)
     logger.info(f"【Step 1/5】正在加载基座模型: {CONFIG['model_name_or_path']}")
-    model, tokenizer = FastLanguageModel.from_pretrained(
+    model, _ = FastLanguageModel.from_pretrained(
         model_name=CONFIG["model_name_or_path"],
         max_seq_length=CONFIG["max_seq_length"],
         dtype=CONFIG["dtype"],
@@ -249,27 +258,21 @@ def main():
         trust_remote_code=CONFIG["trust_remote_code"],
     )
 
-    # 3. 验证/加载 ChatML 对话模版 (优先直接启用 Qwen 原生模版)
-    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template:
-        logger.info("【Step 2/5】检测到模型自带官方原生 ChatML/ToolCalling 模版，直接启用原生模版")
-    else:
-        logger.info("【Step 2/5】模型未内置模版，通过 Unsloth 配置标准 ChatML 模版")
-        tokenizer = get_chat_template(
-            tokenizer,
-            chat_template="chatml",
-            mapping={"role": "role", "content": "content", "user": "user", "assistant": "assistant"},
-        )
+    # 3. Tokenizer 独立加载 (绕开 Unsloth 对 eos_token 的篡改，保持原生干净状态)
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        CONFIG["model_name_or_path"],
+        trust_remote_code=CONFIG["trust_remote_code"],
+    )
+    logger.info(
+        f"【Step 2/5】Tokenizer 独立加载完成: eos='{tokenizer.eos_token}'(id={tokenizer.eos_token_id}), "
+        f"pad='{tokenizer.pad_token}'(id={tokenizer.pad_token_id})"
+    )
 
     def formatting_prompts_func(examples):
         convos = examples["messages"]
-        texts = [
-            tokenizer.apply_chat_template(
-                convo,
-                tokenize=False,
-                add_generation_prompt=False
-            )
-            for convo in convos
-        ]
+        texts = [tokenizer.apply_chat_template(convo, tokenize=False, add_generation_prompt=False) for convo in convos]
         return {"text": texts}
 
     # 4. 施加 PEFT / LoRA 适配器 (All-Linear 全量施加)
@@ -305,7 +308,7 @@ def main():
         f"预估总 Steps: ~{total_steps_est} 步"
     )
 
-    # 6. 配置标准 SFTConfig (参数全部收敛进 SFTConfig，0 飘红，显式开启 tqdm 与 Loss 掩码)
+    # 6. 配置 SFTConfig
     logger.info("【Step 5/5】初始化 SFTConfig 与 SFTTrainer (挂载 EarlyStopping 与 ETA 监听器)")
 
     os.makedirs(CONFIG["output_dir"], exist_ok=True)
@@ -317,7 +320,7 @@ def main():
         gradient_accumulation_steps=CONFIG["gradient_accumulation_steps"],
         learning_rate=CONFIG["learning_rate"],
         lr_scheduler_type=CONFIG["lr_scheduler_type"],
-        warmup_ratio=CONFIG["warmup_ratio"],
+        warmup_steps=max(10, int(total_steps_est * CONFIG.get("warmup_ratio", 0.05))),
         weight_decay=CONFIG["weight_decay"],
         optim=CONFIG["optim"],
         logging_strategy="steps",
@@ -340,6 +343,7 @@ def main():
         dataset_num_proc=num_cpu_cores,
         packing=False,
         assistant_only_loss=CONFIG["assistant_only_loss"],
+        eos_token="<|im_end|>",
     )
 
     # 注册回调器
@@ -364,14 +368,19 @@ def main():
     if CONFIG["assistant_only_loss"]:
         try:
             from unsloth.chat_templates import train_on_responses_only
-            logger.info("【Loss 掩码】应用 Unsloth train_on_responses_only：对 System / User / Tool 提示词自动添加 -100 掩码")
+
+            logger.info(
+                "【Loss 掩码】应用 Unsloth train_on_responses_only：对 System / User / Tool 提示词自动添加 -100 掩码"
+            )
             trainer = train_on_responses_only(
                 trainer,
                 instruction_part="<|im_start|>user\n",
                 response_part="<|im_start|>assistant\n",
             )
         except Exception as e:
-            logger.warning(f"Unsloth train_on_responses_only 自动挂载提示 ({e})，将由 SFTConfig(assistant_only_loss=True) 自动执行掩码。")
+            logger.warning(
+                f"Unsloth train_on_responses_only 自动挂载提示 ({e})，将由 SFTConfig(assistant_only_loss=True) 自动执行掩码。"
+            )
 
     # 8. 开始训练
     logger.info("=" * 80)

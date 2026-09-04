@@ -1,0 +1,14 @@
+Map (num_proc=4): 100%|███████████████████████████████████████████████████████████████████████████████████████████| 64/64 [00:05<00:00, 10.99 examples/s]
+2026-08-31 21:13:53 - train_sft_lora.py:305 - INFO - 训练样本数: 3200 | 验证样本数: 64 | 等效 Batch Size: 16 (mini=2 × accum=8) | 预估总 Steps: ~600 步
+[utils.logger|INFO]训练样本数: 3200 | 验证样本数: 64 | 等效 Batch Size: 16 (mini=2 × accum=8) | 预估总 Steps: ~600 步
+2026-08-31 21:13:53 - train_sft_lora.py:312 - INFO - 【Step 5/5】初始化 SFTConfig 与 SFTTrainer (挂载 EarlyStopping 与 ETA 监听器)
+[utils.logger|INFO]【Step 5/5】初始化 SFTConfig 与 SFTTrainer (挂载 EarlyStopping 与 ETA 监听器)
+Traceback (most recent call last):
+  File "/root/autodl-tmp/car_assistant_finetune/train_sft_lora.py", line 412, in <module>
+    main()
+  File "/root/autodl-tmp/car_assistant_finetune/train_sft_lora.py", line 357, in main
+    trainer = SFTTrainer(
+              ^^^^^^^^^^^
+  File "/root/autodl-tmp/car_assistant_finetune/.venv/lib/python3.11/site-packages/trl/trainer/sft_trainer.py", line 632, in __init__
+    raise ValueError(
+ValueError: The specified `eos_token` ('<EOS_TOKEN>') is not found in the vocabulary of the given `processing_class` (Qwen2Tokenizer). Ensure that the `eos_token` exists in the vocabulary before using it as an EOS token.
