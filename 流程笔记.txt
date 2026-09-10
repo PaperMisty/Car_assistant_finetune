@@ -81,4 +81,13 @@
         担心推理阶段json不合法怎么办,
             ①vLLM自带语法校验进行logits控制,不合法logits设置-inf , 根本上避免语法错误, 我们通过请求携带参数驱动该功能;
             ②FastAPI的Pydantic自动拦截不合法json,然后我们可以设置节点重试;
+2. SFT训练
+3.  SFT验收
+    3.1 验证集数据构建
+        ①教师迫导机制,将验证集的对话 [每次累加] 输入给模型,即使中途LLM偏离,也会在下一轮对话被验证集替换;
+                验证集数据: car_assitant_eval
+    3.2 模型回答区分SFT 和 基座模型回答, 作为model_prediction.json
+    3.3 模型回答可视化为HTML
+    3.4 vLLM测试最佳实践
+        3.4.1 测试阶段Python启动 | 生产阶段shell命令行启动
         
