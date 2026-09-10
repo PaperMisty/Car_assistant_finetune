@@ -407,15 +407,78 @@ def main():
             print("⚠️ 未检测到 GPU 或模型权重路径不存在，自动切换至 Mock 模拟推理模式进行链路测试。")
         predictions = generate_mock_responses(eval_items)
     else:
+        import gc
+        import torch
+
+        # 智能探测 SFT 模型类型：未合并 LoRA 适配器 vs 独立全量模型
+        is_sft_lora = False
+        adapter_cfg = os.path.join(args.sft_model, "adapter_config.json")
+        if os.path.exists(adapter_cfg):
+            is_sft_lora = True
+            print(f"📦 智能检测到 SFT 权重为未合并 LoRA 适配器: {args.sft_model}")
+            print("💡 启用基座+LoRA动态热插拔机制（单次加载基座，零内存浪费，秒级完成两轮生成）！")
+
         print("🚀 检测到 GPU 与模型环境，启动 vLLM 批量多轮推理...")
-        print("1. 生成 Baseline (Qwen3-8B) 回答...")
-        baseline_res = run_vllm_inference(
-            eval_items, args.baseline_model, batch_size=args.batch_size, max_tokens=args.max_tokens
-        )
-        print("2. 生成 SFT 模型回答...")
-        sft_res = run_vllm_inference(
-            eval_items, args.sft_model, batch_size=args.batch_size, max_tokens=args.max_tokens
-        )
+
+        if is_sft_lora:
+            # 模式 A：单实例基座 + 动态挂载 LoRA 切换 (最优雅、最快且绝不 OOM)
+            from vllm import LLM, SamplingParams
+            from vllm.lora.request import LoRARequest
+
+            # 解析 LoRA 秩
+            actual_lora_rank = 16
+            try:
+                with open(adapter_cfg, "r", encoding="utf-8") as f:
+                    actual_lora_rank = int(json.load(f).get("r", 16))
+            except Exception:
+                pass
+
+            print(f"正在初始化 vLLM 引擎: {args.baseline_model} (LoRA Rank: {actual_lora_rank})...")
+            llm = LLM(
+                model=args.baseline_model,
+                tensor_parallel_size=1,
+                gpu_memory_utilization=0.90,
+                max_model_len=4096,
+                trust_remote_code=True,
+                enable_lora=True,
+                max_lora_rank=actual_lora_rank,
+            )
+            sampling_params = SamplingParams(
+                temperature=0.3,
+                top_p=0.8,
+                max_tokens=args.max_tokens,
+                stop=["<|im_end|>", "<|endoftext|>"],
+            )
+
+            prompts = []
+            for item in eval_items:
+                if "history_messages" in item:
+                    prompts.append(format_chatml_prompt(item["history_messages"], item.get("system_prompt")))
+                else:
+                    prompts.append(format_chatml_prompt([{"role": "user", "content": item.get("query", "")}], item.get("system_prompt")))
+
+            print(f"1. 生成 Baseline (原生基座无 LoRA) 回答 (共 {len(prompts)} 个切片)...")
+            base_outputs = llm.generate(prompts, sampling_params, lora_request=None)
+            baseline_res = [out.outputs[0].text.strip() for out in base_outputs]
+
+            print(f"2. 生成 SFT (挂载 LoRA 适配器: {args.sft_model}) 回答 (共 {len(prompts)} 个切片)...")
+            lora_req = LoRARequest("car_sft_lora", 1, args.sft_model)
+            sft_outputs = llm.generate(prompts, sampling_params, lora_request=lora_req)
+            sft_res = [out.outputs[0].text.strip() for out in sft_outputs]
+
+        else:
+            # 模式 B：两个独立的完整全量模型 (分步执行并主动回收显存)
+            print("1. 生成 Baseline 模型回答...")
+            baseline_res = run_vllm_inference(
+                eval_items, args.baseline_model, batch_size=args.batch_size, max_tokens=args.max_tokens
+            )
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            print("2. 生成 SFT 全量模型回答...")
+            sft_res = run_vllm_inference(
+                eval_items, args.sft_model, batch_size=args.batch_size, max_tokens=args.max_tokens
+            )
 
         predictions = []
         for item, a_txt, b_txt in zip(eval_items, baseline_res, sft_res):
