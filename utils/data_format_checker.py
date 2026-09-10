@@ -100,9 +100,13 @@ class DataFormatChecker:
                             try:
                                 json.loads(fn_args)
                             except Exception as e:
-                                errors.append(f"messages[{idx}].tool_calls[{call_idx}] arguments 不是合法 JSON 字符串: {e}")
+                                errors.append(
+                                    f"messages[{idx}].tool_calls[{call_idx}] arguments 不是合法 JSON 字符串: {e}"
+                                )
                         elif not isinstance(fn_args, dict):
-                            errors.append(f"messages[{idx}].tool_calls[{call_idx}] arguments 类型必须为 JSON 字符串或 dict")
+                            errors.append(
+                                f"messages[{idx}].tool_calls[{call_idx}] arguments 类型必须为 JSON 字符串或 dict"
+                            )
 
             # 4.3 tool 返回消息校验
             if role == "tool":
@@ -163,7 +167,7 @@ class DataFormatChecker:
                                 "summary": f"第 {line_idx} 行 JSON 解析失败: {e}",
                                 "total": 0,
                                 "passed": 0,
-                                "failed": 1
+                                "failed": 1,
                             }
         else:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -187,13 +191,15 @@ class DataFormatChecker:
                 failed += 1
 
             if not is_valid or warnings:
-                report_details.append({
-                    "index": idx,
-                    "seed_id": sample.get("seed_id", "UNKNOWN") if isinstance(sample, dict) else "INVALID",
-                    "is_valid": is_valid,
-                    "errors": errors,
-                    "warnings": warnings
-                })
+                report_details.append(
+                    {
+                        "index": idx,
+                        "seed_id": sample.get("seed_id", "UNKNOWN") if isinstance(sample, dict) else "INVALID",
+                        "is_valid": is_valid,
+                        "errors": errors,
+                        "warnings": warnings,
+                    }
+                )
 
         return {
             "file_path": file_path,
@@ -201,7 +207,7 @@ class DataFormatChecker:
             "passed_count": passed,
             "failed_count": failed,
             "pass_rate": f"{(passed / total * 100):.2f}%" if total > 0 else "0.00%",
-            "issues": report_details
+            "issues": report_details,
         }
 
 
