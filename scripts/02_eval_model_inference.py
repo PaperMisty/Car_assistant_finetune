@@ -408,15 +408,43 @@ def main():
         predictions = generate_mock_responses(eval_items)
     else:
         import gc
+        import glob
         import torch
 
-        # 智能探测 SFT 模型类型：未合并 LoRA 适配器 vs 独立全量模型
-        is_sft_lora = False
-        adapter_cfg = os.path.join(args.sft_model, "adapter_config.json")
-        if os.path.exists(adapter_cfg):
-            is_sft_lora = True
-            print(f"📦 智能检测到 SFT 权重为未合并 LoRA 适配器: {args.sft_model}")
+        # 1. 严格校验 SFT 路径是否存在
+        if not os.path.exists(args.sft_model):
+            raise FileNotFoundError(
+                f"\n❌ 未找到指定的 SFT 模型目录: '{args.sft_model}'\n"
+                f"当前执行工作目录为: '{os.getcwd()}'\n"
+                f"请在 Linux 终端执行 `ls -la output/` 或 `find output/` 核实你的实际训练产物路径，"
+                f"并通过 `--sft_model <你的实际路径>` 传入！"
+            )
+
+        # 2. 智能探测 LoRA 适配器 (支持顶层目录及 checkpoint-* 子目录自动识别)
+        real_sft_path = args.sft_model
+        adapter_cfg = os.path.join(real_sft_path, "adapter_config.json")
+        
+        # 若根目录下没有，自动寻找子目录最新的 checkpoint-*
+        if not os.path.exists(adapter_cfg):
+            ckpts = sorted(
+                glob.glob(os.path.join(real_sft_path, "checkpoint-*")),
+                key=os.path.getmtime,
+                reverse=True
+            )
+            for ckpt in ckpts:
+                sub_cfg = os.path.join(ckpt, "adapter_config.json")
+                if os.path.exists(sub_cfg):
+                    real_sft_path = ckpt
+                    adapter_cfg = sub_cfg
+                    print(f"🔍 自动在子目录中发现最新微调权重: {real_sft_path}")
+                    break
+
+        is_sft_lora = os.path.exists(adapter_cfg)
+        if is_sft_lora:
+            print(f"📦 智能检测到 SFT 权重为未合并 LoRA 适配器: {real_sft_path}")
             print("💡 启用基座+LoRA动态热插拔机制（单次加载基座，零内存浪费，秒级完成两轮生成）！")
+        else:
+            print(f"📦 未检测到 adapter_config.json，判定为独立全量合并模型: {real_sft_path}")
 
         print("🚀 检测到 GPU 与模型环境，启动 vLLM 批量多轮推理...")
 
@@ -461,8 +489,8 @@ def main():
             base_outputs = llm.generate(prompts, sampling_params, lora_request=None)
             baseline_res = [out.outputs[0].text.strip() for out in base_outputs]
 
-            print(f"2. 生成 SFT (挂载 LoRA 适配器: {args.sft_model}) 回答 (共 {len(prompts)} 个切片)...")
-            lora_req = LoRARequest("car_sft_lora", 1, args.sft_model)
+            print(f"2. 生成 SFT (挂载 LoRA 适配器: {real_sft_path}) 回答 (共 {len(prompts)} 个切片)...")
+            lora_req = LoRARequest("car_sft_lora", 1, real_sft_path)
             sft_outputs = llm.generate(prompts, sampling_params, lora_request=lora_req)
             sft_res = [out.outputs[0].text.strip() for out in sft_outputs]
 
@@ -477,7 +505,7 @@ def main():
 
             print("2. 生成 SFT 全量模型回答...")
             sft_res = run_vllm_inference(
-                eval_items, args.sft_model, batch_size=args.batch_size, max_tokens=args.max_tokens
+                eval_items, real_sft_path, batch_size=args.batch_size, max_tokens=args.max_tokens
             )
 
         predictions = []
@@ -492,11 +520,25 @@ def main():
                 }
             )
 
-    with open(args.output_file, "w", encoding="utf-8") as f:
-        for item in predictions:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    # 安全落盘与灾备写入机制 (确保绝不前功尽弃)
+    out_dir = os.path.dirname(os.path.abspath(args.output_file))
+    os.makedirs(out_dir, exist_ok=True)
 
-    print(f"✅ 模型生成结果已保存至: {args.output_file} (共 {len(predictions)} 个多轮切片)")
+    try:
+        with open(args.output_file, "w", encoding="utf-8") as f:
+            for item in predictions:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())  # 强制刷盘写入物理磁盘，防止掉电或缓冲区丢失
+        print(f"✅ 模型生成结果已安全落盘至: {args.output_file} (共 {len(predictions)} 个多轮切片)")
+    except Exception as e:
+        backup_path = "backup_model_predictions.jsonl"
+        print(f"⚠️ 写入 {args.output_file} 遇到异常: {e}，正在启动紧急灾备写入: {backup_path}...")
+        with open(backup_path, "w", encoding="utf-8") as f:
+            for item in predictions:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            f.flush()
+        print(f"✅ 灾备数据已保存至当前目录: {os.path.abspath(backup_path)}")
 
     if args.run_cmmlu:
         run_evalscope_cmmlu(args.sft_model)
