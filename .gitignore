@@ -13,4 +13,3 @@ logs/
 model/
 rl/
 .env
-scripts/
