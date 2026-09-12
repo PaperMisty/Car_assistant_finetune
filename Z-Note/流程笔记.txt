@@ -102,5 +102,23 @@
         3.5.2 向量化路由,检索(BGE-embedding)+意图粘滞(避免意图随着对话推进稀释)
             发现 意图工具和对话内容不是直接对应, 需要加上BGE-reranker-base模型进行重排序
         3.5.3 数据集质量问题, 导致Tool路由总是与数据集标准答案不同
-        
+
+压测命令(测下合并adapter与否的区别,注意先备份一份adapter):
+uv run --no-sync python -m utils.vllm_stress_test \
+  --base_url "http://127.0.0.1:8000" \
+  --model "Qwen3-8B-sft-all" \
+  --concurrency_levels 5 10 20 40 60 \
+  --num_requests_per_level 50 \
+  --output_dir "outputs/benchmark"
+
+备用压测命令:
+evalscope perf \
+--url "http://127.0.0.1:8000/v1/chat/completions" \
+--parallel 5 10 20 40 60\
+--model Qwen3-8B-sft-all \
+--number 10 10 10 10 10\
+--api openai \
+--dataset openqa \
+--stream
+
         
