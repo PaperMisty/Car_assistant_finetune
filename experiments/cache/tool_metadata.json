@@ -1,0 +1,1311 @@
+[
+  {
+    "name": "battery_warranty_query",
+    "description": "查询动力电池质保状态、衰减保障期与当前质保生效情况。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "extended_warranty_query",
+    "description": "查询车辆是否购买延保服务及生效范围。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "repair_warranty_query",
+    "description": "查询维修更换项目的具体配件质保期限。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "part_name": {
+          "description": "[必需] 待查询的车辆零部件名称（如 '动力电池', '前保险杠'）",
+          "title": "Part Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "part_name"
+      ],
+      "title": "VehiclePartInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "warranty_case_query",
+    "description": "查询质保理赔案件的审核状态与赔付进展。",
+    "parameters": {
+      "description": "仅包含必填案件编号的基础模型",
+      "properties": {
+        "case_id": {
+          "description": "[必需] 投诉或质保案件唯一编号",
+          "title": "Case Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id"
+      ],
+      "title": "CaseIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "warranty_policy_query",
+    "description": "查询指定车型的官方三包及整车质保政策细则。",
+    "parameters": {
+      "properties": {
+        "vehicle_model": {
+          "description": "[必需] 车辆具体款型（如 '2023款 G7 Max'）",
+          "title": "Vehicle Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_model"
+      ],
+      "title": "WarrantyPolicyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "warranty_status_query",
+    "description": "查询整车基础质保是否在保及剩余天数。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "campaign_eligibility_query",
+    "description": "查询车辆或车主参与特定营销/充电权益活动的资格。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "campaign_code": {
+          "description": "[必需] 营销或权益活动编号",
+          "title": "Campaign Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "campaign_code"
+      ],
+      "title": "CampaignInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "charger_capability_query",
+    "description": "查询充电设备（家用桩/超充）与车辆的兼容性及最大充电功率。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "charger_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 充电桩具体型号",
+          "title": "Charger Model"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "ChargerCapabilityInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "charger_survey_booking",
+    "description": "预约家充桩上门电表与车位勘测服务。",
+    "parameters": {
+      "properties": {
+        "address": {
+          "description": "[必需] 安装充电桩的详细勘测地址",
+          "title": "Address",
+          "type": "string"
+        },
+        "preferred_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 预约上门勘测日期（YYYY-MM-DD）",
+          "title": "Preferred Date"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "title": "ChargerSurveyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "charging_benefit_query",
+    "description": "查询车辆账户绑定的免费充电额度或权益卡状态。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 查询适用的城市或行政区域",
+          "title": "Region"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "ChargingBenefitInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "bodyshop_booking",
+    "description": "预约官方钣金喷漆维修服务。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "preferred_date": {
+          "description": "[必需] 客户期望预约的日期（格式：YYYY-MM-DD）",
+          "title": "Preferred Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "preferred_date"
+      ],
+      "title": "VehicleDateInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "repair_authorization",
+    "description": "提交车主对指定维修工单的正式授权批准或拒绝。",
+    "parameters": {
+      "properties": {
+        "work_order_id": {
+          "description": "[必需] 维修或服务工单编号（如 'WO202311020088'）",
+          "title": "Work Order Id",
+          "type": "string"
+        },
+        "approved": {
+          "description": "[必需] 车主是否授权同意本次维修施工方案与报价",
+          "title": "Approved",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "work_order_id",
+        "approved"
+      ],
+      "title": "RepairAuthInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "repair_intake_query",
+    "description": "查询车辆进站维修的接待要求、预检工序及证件材料准备指引。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "issue_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 需到店送修的故障或损伤简要描述",
+          "title": "Issue Summary"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "RepairIntakeInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "repair_network_query",
+    "description": "查询指定城市下所有具备官方认证资质的维修中心及4S店网点。",
+    "parameters": {
+      "description": "仅包含必填城市的基础模型",
+      "properties": {
+        "city": {
+          "description": "[必需] 目标城市名称（如 '北京市'、'上海市'）",
+          "title": "City",
+          "type": "string"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "title": "CityBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "repair_order_query",
+    "description": "查询维修工单实时进度、施工工位、配件到货与预计交付时间。",
+    "parameters": {
+      "description": "仅包含必填工单编号的基础模型",
+      "properties": {
+        "work_order_id": {
+          "description": "[必需] 维修或服务工单编号（如 'WO202311020088'）",
+          "title": "Work Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_order_id"
+      ],
+      "title": "WorkOrderIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "repair_quote_query",
+    "description": "查询指定维修工单的费用明细清单与报价明细。",
+    "parameters": {
+      "description": "仅包含必填工单编号的基础模型",
+      "properties": {
+        "work_order_id": {
+          "description": "[必需] 维修或服务工单编号（如 'WO202311020088'）",
+          "title": "Work Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_order_id"
+      ],
+      "title": "WorkOrderIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "mobility_support_query",
+    "description": "查询维修超期期间免费代步车安排或出行打车津贴审核状态。",
+    "parameters": {
+      "description": "仅包含必填工单编号的基础模型",
+      "properties": {
+        "work_order_id": {
+          "description": "[必需] 维修或服务工单编号（如 'WO202311020088'）",
+          "title": "Work Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_order_id"
+      ],
+      "title": "WorkOrderIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "parts_inventory_query",
+    "description": "查询指定零部件的区域仓库现货库存情况。",
+    "parameters": {
+      "properties": {
+        "part_name": {
+          "description": "[必需] 需查询的配件名称或原厂编号",
+          "title": "Part Name",
+          "type": "string"
+        },
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 拟查询库存的城市",
+          "title": "City"
+        }
+      },
+      "required": [
+        "part_name"
+      ],
+      "title": "PartsInventoryInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "parts_order_query",
+    "description": "查询工单关联零件向厂家供应链发起订购的审批与发运状态。",
+    "parameters": {
+      "description": "仅包含必填工单编号的基础模型",
+      "properties": {
+        "work_order_id": {
+          "description": "[必需] 维修或服务工单编号（如 'WO202311020088'）",
+          "title": "Work Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_order_id"
+      ],
+      "title": "WorkOrderIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "parts_price_query",
+    "description": "查询原厂备件的标准统一指导零售价格及建议工时费。",
+    "parameters": {
+      "properties": {
+        "part_name": {
+          "description": "[必需] 零部件名称",
+          "title": "Part Name",
+          "type": "string"
+        },
+        "vehicle_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 适用的具体车型年款",
+          "title": "Vehicle Model"
+        }
+      },
+      "required": [
+        "part_name"
+      ],
+      "title": "PartsPriceInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "parts_trace_query",
+    "description": "查询在途调拨配件的实时干线物流与预计到店时间。",
+    "parameters": {
+      "properties": {
+        "part_order_id": {
+          "description": "[必需] 零部件物流调拨单号",
+          "title": "Part Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "part_order_id"
+      ],
+      "title": "PartsTraceInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "payment_and_invoice_query",
+    "description": "查询维修工单的线上支付状态与电子发票开具链接。",
+    "parameters": {
+      "description": "仅包含必填工单编号的基础模型",
+      "properties": {
+        "work_order_id": {
+          "description": "[必需] 维修或服务工单编号（如 'WO202311020088'）",
+          "title": "Work Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_order_id"
+      ],
+      "title": "WorkOrderIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "maintenance_due_query",
+    "description": "查询车辆下一次定期保养到期里程与建议保养时间。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "maintenance_policy_query",
+    "description": "查询不同车型在各里程区间的官方常规保养周期与项目说明。",
+    "parameters": {
+      "properties": {
+        "vehicle_model": {
+          "description": "[必需] 车辆具体款型（如 '2023款 G7 Max'）",
+          "title": "Vehicle Model",
+          "type": "string"
+        },
+        "mileage": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 当前表显总里程（公里）",
+          "title": "Mileage"
+        }
+      },
+      "required": [
+        "vehicle_model"
+      ],
+      "title": "MaintenancePolicyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "service_booking",
+    "description": "预约指定服务网点的常规保养或维保工位。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "preferred_date": {
+          "description": "[必需] 客户期望预约的日期（格式：YYYY-MM-DD）",
+          "title": "Preferred Date",
+          "type": "string"
+        },
+        "store_id": {
+          "description": "[必需] 拟预约到店的服务门店或4S店ID",
+          "title": "Store Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "preferred_date",
+        "store_id"
+      ],
+      "title": "ServiceBookingInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "service_history_query",
+    "description": "查询车辆全生命周期在官方网点的历史保养与维修记录。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "service_package_query",
+    "description": "查询车主已购买的基础保养或终身免费保养套餐余额。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "service_policy_query",
+    "description": "查询官方售后各项服务保障细则与承诺政策。",
+    "parameters": {
+      "properties": {
+        "topic": {
+          "description": "[必需] 查询的服务政策主题（如 '退换车规则', '首保政策'）",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 适用车型",
+          "title": "Vehicle Model"
+        }
+      },
+      "required": [
+        "topic"
+      ],
+      "title": "ServicePolicyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "pickup_service_query",
+    "description": "查询售后维修上门代客取车或送车到家的服务范围与排期。",
+    "parameters": {
+      "properties": {
+        "store_id": {
+          "description": "[必需] 负责取送车的服务门店代号",
+          "title": "Store Id",
+          "type": "string"
+        },
+        "preferred_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 预约取车时间（YYYY-MM-DD）",
+          "title": "Preferred Date"
+        }
+      },
+      "required": [
+        "store_id"
+      ],
+      "title": "PickupServiceInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "mobile_service_query",
+    "description": "查询移动服务车上门简易保养或应急搭电服务支持情况。",
+    "parameters": {
+      "properties": {
+        "city": {
+          "description": "[必需] 目标城市名称（如 '北京市'、'上海市'）",
+          "title": "City",
+          "type": "string"
+        },
+        "service_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 查询的具体服务类型项目",
+          "title": "Service Type"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "title": "CityServiceInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "roadside_assistance_dispatch",
+    "description": "为抛锚无法行驶的车辆加急派发官方道路救援拖车。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "location": {
+          "description": "[必需] 故障抛锚或事故发生的具体地理位置/路段",
+          "title": "Location",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "location"
+      ],
+      "title": "RoadsideDispatchInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "roadside_or_insurance_query",
+    "description": "查询官方免费道路救援里程范围及搭电换胎政策。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 需咨询的救援收费或保险垫付疑问",
+          "title": "Question"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "RoadsideQueryInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "regional_alert_query",
+    "description": "查询指定区域暴雨、冰雪暴跌或地质灾害等行车安全预警通知。",
+    "parameters": {
+      "description": "仅包含必填城市的基础模型",
+      "properties": {
+        "city": {
+          "description": "[必需] 目标城市名称（如 '北京市'、'上海市'）",
+          "title": "City",
+          "type": "string"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "title": "CityBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "recall_status_query",
+    "description": "根据VIN码精准查询车辆是否存在未完成的官方安全召回或服务活动。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "digital_key_compatibility",
+    "description": "查询手机蓝牙/UWB/NFC数字钥匙与当前车型的适配支持列表。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "phone_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 车主的智能手机机型",
+          "title": "Phone Model"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "DigitalKeyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "ota_campaign_query",
+    "description": "查询车机最新可升级的 OTA 固件版本及发布变更说明。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "subscription_status_query",
+    "description": "查询智能座舱车联车机娱乐流量及高阶智驾软件订阅有效期。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_account_capability",
+    "description": "查询车主或副授权账号在 App 端的车辆控制功能权限。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "capability": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 拟查询的权限名称（如 '远程控车', '主车主'）",
+          "title": "Capability"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "CapabilityInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_binding_query",
+    "description": "查询车辆当前绑定的实名认证主账号信息。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_connectivity_status",
+    "description": "查询车载 T-Box 通信模块的 4G/5G 信号强度与联网通断状态。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_feature_query",
+    "description": "查询车辆硬件配置是否原生支持某功能及其具体车机设置路径。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "feature_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 车辆功能项（如 '自动大灯', '感应尾门'）",
+          "title": "Feature Name"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "FeatureNameInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_health_query",
+    "description": "调取整车远程诊断系统报告，查询胎压、制动液及电机电池健康度。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_online_status",
+    "description": "查询车辆当前处于休眠、哨兵模式、在线行车还是离线状态。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "vehicle_security_status",
+    "description": "查询车辆车门车窗锁闭状态及车身防盗报警状态。",
+    "parameters": {
+      "description": "仅包含必填车架号/车辆ID的基础模型",
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id"
+      ],
+      "title": "VehicleIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "communication_consent_update",
+    "description": "更新车主在官方 CRM 系统中的多渠道外呼与营销免打扰偏好。",
+    "parameters": {
+      "properties": {
+        "channel": {
+          "description": "[必需/枚举] 拟授权联系的沟通渠道：'phone'(电话), 'sms'(短信), 'app'(推送), 'email'(邮件)",
+          "enum": [
+            "phone",
+            "sms",
+            "app",
+            "email"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "consent": {
+          "description": "[必需] 是否同意授权联系",
+          "title": "Consent",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "channel",
+        "consent"
+      ],
+      "title": "CommunicationConsentInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "complaint_case_create",
+    "description": "为客户对门店服务态度恶劣、收费欺诈、维修争议或严重不满正式创建官方升级投诉工单。",
+    "parameters": {
+      "properties": {
+        "issue_summary": {
+          "description": "[必需] 客户投诉核心问题、争议现象或涉事门店人员行为概述",
+          "title": "Issue Summary",
+          "type": "string"
+        },
+        "vehicle_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 投诉所涉车辆的唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id"
+        },
+        "contact_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 客户要求联系的渠道（如 phone, app）",
+          "title": "Contact Channel"
+        }
+      },
+      "required": [
+        "issue_summary"
+      ],
+      "title": "ComplaintCaseInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "complaint_case_query",
+    "description": "查询车主投诉工单的处理阶段、涉事门店及最终跟进回复。",
+    "parameters": {
+      "description": "仅包含必填案件编号的基础模型",
+      "properties": {
+        "case_id": {
+          "description": "[必需] 投诉或质保案件唯一编号",
+          "title": "Case Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id"
+      ],
+      "title": "CaseIdBase",
+      "type": "object"
+    }
+  },
+  {
+    "name": "consent_and_policy_query",
+    "description": "查询车企用户个人信息授权及隐私合规政策详情。",
+    "parameters": {
+      "properties": {
+        "policy_type": {
+          "description": "[必需] 政策协议类型（如 '隐私保护指引', '车联网服务条款'）",
+          "title": "Policy Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_type"
+      ],
+      "title": "ConsentPolicyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "customer_followup_record",
+    "description": "将维修或服务回访结果保存至 CRM 系统并生成闭环记录。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "followup_note": {
+          "description": "[必需] 回访记录的客户评价或新增反馈内容",
+          "title": "Followup Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "followup_note"
+      ],
+      "title": "CustomerFollowupInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "dealer_policy_query",
+    "description": "查询特定授权经销商或全国统一的商务服务细则。",
+    "parameters": {
+      "properties": {
+        "policy_topic": {
+          "description": "[必需] 经销商政策专题（如 '提车规范', '代金券核销'）",
+          "title": "Policy Topic",
+          "type": "string"
+        },
+        "dealer_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 经销商门店代号",
+          "title": "Dealer Id"
+        }
+      },
+      "required": [
+        "policy_topic"
+      ],
+      "title": "DealerPolicyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "dealer_service_query",
+    "description": "查询授权特约销售服务店的营业时间与接待能力。",
+    "parameters": {
+      "properties": {
+        "city": {
+          "description": "[必需] 目标城市名称（如 '北京市'、'上海市'）",
+          "title": "City",
+          "type": "string"
+        },
+        "service_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 查询的具体服务类型项目",
+          "title": "Service Type"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "title": "CityServiceInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "insurance_consult_booking",
+    "description": "预约官方续保顾问进行新一年车险方案测算与出单咨询。",
+    "parameters": {
+      "properties": {
+        "vehicle_id": {
+          "description": "[必需] 车辆唯一代号（17位VIN码或车牌号）",
+          "title": "Vehicle Id",
+          "type": "string"
+        },
+        "preferred_date": {
+          "description": "[必需] 客户期望预约的日期（格式：YYYY-MM-DD）",
+          "title": "Preferred Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vehicle_id",
+        "preferred_date"
+      ],
+      "title": "InsuranceBookingInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "insurance_policy_query",
+    "description": "查询商业险具体险种（车损、三者险额度）及到期终止时间。",
+    "parameters": {
+      "properties": {
+        "policy_number": {
+          "description": "[必需] 车辆商业险或交强险保单号",
+          "title": "Policy Number",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_number"
+      ],
+      "title": "InsurancePolicyInput",
+      "type": "object"
+    }
+  },
+  {
+    "name": "privacy_incident_create",
+    "description": "创建车辆数据采集或隐私安全相关的事件报告工单。",
+    "parameters": {
+      "description": "问题工单创建基础模型",
+      "properties": {
+        "issue_summary": {
+          "description": "[必需] 客户反馈问题或事故现象概述",
+          "title": "Issue Summary",
+          "type": "string"
+        },
+        "contact_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[可选] 客户联系渠道（如 phone, app）",
+          "title": "Contact Channel"
+        }
+      },
+      "required": [
+        "issue_summary"
+      ],
+      "title": "IssueBase",
+      "type": "object"
+    }
+  }
+]

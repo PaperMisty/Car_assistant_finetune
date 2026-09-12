@@ -14,7 +14,6 @@
     {"name":"complaint_case_query","description":"查询投诉工单状态。","parameters":{"type":"object","properties":{"case_id":{"type":"string"}},"required":["case_id"],"additionalProperties":false}},
     {"name":"consent_and_policy_query","description":"查询授权或隐私政策。","parameters":{"type":"object","properties":{"policy_type":{"type":"string"}},"required":["policy_type"],"additionalProperties":false}},
     {"name":"customer_followup_record","description":"记录客户回访信息。","parameters":{"type":"object","properties":{"vehicle_id":{"type":"string"},"followup_note":{"type":"string"}},"required":["followup_note"],"additionalProperties":false}},
-    {"name":"customer_operation_query","description":"查询客户运营服务状态。","parameters":{"type":"object","properties":{"vehicle_id":{"type":"string"}},"required":["vehicle_id"],"additionalProperties":false}},
     {"name":"dealer_policy_query","description":"查询经销商服务政策。","parameters":{"type":"object","properties":{"dealer_id":{"type":"string"},"policy_topic":{"type":"string"}},"required":["policy_topic"],"additionalProperties":false}},
     {"name":"dealer_service_query","description":"查询经销商服务能力。","parameters":{"type":"object","properties":{"city":{"type":"string"},"service_type":{"type":"string"}},"required":["city"],"additionalProperties":false}},
     {"name":"digital_key_compatibility","description":"查询数字钥匙兼容性。","parameters":{"type":"object","properties":{"vehicle_id":{"type":"string"},"phone_model":{"type":"string"}},"required":["vehicle_id"],"additionalProperties":false}},
