@@ -84,6 +84,12 @@ def parse_args():
         help="单次生成最大 token 数量",
     )
     parser.add_argument(
+        "--max_model_len",
+        type=int,
+        default=8192,
+        help="vLLM 最大模型上下文长度限制 (默认 8192，适应全量工具或超长多轮对话)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -509,12 +515,12 @@ def main():
             except Exception:
                 pass
 
-        print(f"正在启动 vLLM 引擎: {args.baseline_model} (GPU Memory: 90%, LoRA Rank: {actual_lora_rank})...")
+        print(f"正在启动 vLLM 引擎: {args.baseline_model} (GPU Memory: 90%, Max Context: {args.max_model_len}, LoRA Rank: {actual_lora_rank})...")
         llm = LLM(
             model=args.baseline_model,
             tensor_parallel_size=1,
             gpu_memory_utilization=0.90,
-            max_model_len=4096,
+            max_model_len=args.max_model_len,
             trust_remote_code=True,
             enable_lora=is_sft_lora,
             max_lora_rank=actual_lora_rank if is_sft_lora else 16,

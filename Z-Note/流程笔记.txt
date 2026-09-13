@@ -145,7 +145,7 @@ nohup vllm serve model/Qwen/Qwen3-8B \
     --max-lora-rank 64 \
     --port 8000 \
     --gpu-memory-utilization 0.90 \
-    --max-model-len 4096 \
+    --max-model-len 8192 \
     --trust-remote-code \
     > vllm_lora.log 2>&1 &
 
@@ -182,7 +182,7 @@ nohup vllm serve output/qwen_8b_merged_sft \
     --served-model-name Qwen3-8B-sft-merged \
     --port 8000 \
     --gpu-memory-utilization 0.90 \
-    --max-model-len 4096 \
+    --max-model-len 8192 \
     --trust-remote-code \
     > vllm_merged.log 2>&1 &
 
