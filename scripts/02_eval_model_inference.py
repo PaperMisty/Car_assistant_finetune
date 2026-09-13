@@ -46,6 +46,41 @@ from experiments.test_bge_reranker_routing import (
 )
 
 
+def resolve_model_path(target_path: str, env_key: str, default_rel: str, fallback_hardcoded: str) -> str:
+    """智能解析跨平台模型路径：优先使用命令行参数/环境变量/相对路径，回退到历史硬编码"""
+    candidates = [
+        target_path,
+        os.getenv(env_key),
+        default_rel,
+        fallback_hardcoded,
+    ]
+    for c in candidates:
+        if c:
+            cleaned = c.strip("\"'")
+            if os.path.exists(cleaned):
+                return cleaned
+    return (target_path or os.getenv(env_key) or default_rel).strip("\"'")
+
+
+def get_optimal_device(device_arg: str = "auto") -> str:
+    """根据硬件可用性自动判定设备：有 GPU 优先使用 cuda，否则回退使用 cpu"""
+    if device_arg and device_arg.lower() in ["cuda", "cpu"]:
+        if device_arg.lower() == "cuda":
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    return "cuda"
+            except Exception:
+                pass
+            return "cpu"
+        return device_arg.lower()
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="汽车客服模型推理与对齐税评估 (集成工具路由与思考闭合)")
     parser.add_argument(
@@ -110,14 +145,21 @@ def parse_args():
     parser.add_argument(
         "--bge_m3_path",
         type=str,
-        default=DEFAULT_BGE_M3_PATH,
-        help="BGE-M3 向量模型路径",
+        default=os.getenv("BGE_M3_PATH", "model/BAAI/bge-m3").strip("\"'"),
+        help="BGE-M3 向量模型路径 (默认 model/BAAI/bge-m3)",
     )
     parser.add_argument(
         "--reranker_path",
         type=str,
-        default=DEFAULT_RERANKER_PATH,
-        help="BGE-Reranker 模型路径",
+        default=os.getenv("RERANKER_PATH", "model/BAAI/bge-reranker-base").strip("\"'"),
+        help="BGE-Reranker 模型路径 (默认 model/BAAI/bge-reranker-base)",
+    )
+    parser.add_argument(
+        "--router_device",
+        type=str,
+        default="auto",
+        choices=["auto", "cuda", "cpu"],
+        help="工具路由模型运算设备 ('auto', 'cuda', 'cpu'，默认 auto 自动检测 GPU)",
     )
     parser.add_argument(
         "--close_think",
@@ -146,15 +188,16 @@ class TwoStageToolRouter:
         self,
         m3_path: str = DEFAULT_BGE_M3_PATH,
         reranker_path: str = DEFAULT_RERANKER_PATH,
-        device: str = "cpu",
+        device: str = "auto",
         cache_dir: str = "experiments/cache"
     ):
+        self.device = get_optimal_device(device)
         self.available = False
         try:
-            print(f"📦 正在初始化两阶段工具路由器...")
-            self.m3 = BGEM3ToolRetriever(model_path=m3_path, device=device)
+            print(f"📦 正在初始化两阶段工具路由器 (运行设备: {self.device})...")
+            self.m3 = BGEM3ToolRetriever(model_path=m3_path, device=self.device)
             self.tools, self.embeddings = get_or_build_tool_embeddings(self.m3, cache_dir=cache_dir)
-            self.reranker = BGEReranker(model_path=reranker_path, device=device)
+            self.reranker = BGEReranker(model_path=reranker_path, device=self.device)
             self.tool_names = [t.get("function", t).get("name") for t in self.tools]
             self.tool_texts = [format_tool_signature_text(t) for t in self.tools]
             self.tool_name_to_text = {n: txt for n, txt in zip(self.tool_names, self.tool_texts)}
@@ -428,15 +471,43 @@ def main():
     # 1. 初始化两阶段工具路由器
     router = None
     if args.use_router:
+        m3_actual = resolve_model_path(
+            args.bge_m3_path,
+            "BGE_M3_PATH",
+            "model/BAAI/bge-m3",
+            DEFAULT_BGE_M3_PATH,
+        )
+        reranker_actual = resolve_model_path(
+            args.reranker_path,
+            "RERANKER_PATH",
+            "model/BAAI/bge-reranker-base",
+            DEFAULT_RERANKER_PATH,
+        )
         router = TwoStageToolRouter(
-            m3_path=args.bge_m3_path,
-            reranker_path=args.reranker_path,
-            device="cpu"
+            m3_path=m3_actual,
+            reranker_path=reranker_actual,
+            device=args.router_device,
         )
 
     # 2. 教师强迫多轮切片展开 (同时为每一轮动态分配 Top-3 紧凑工具)
     eval_items = expand_teacher_forced_slices(raw_items, router=router, top_k_tools=args.top_k_tools)
     print(f"📊 切片完成：原始样本 {len(raw_items)} 组 -> 展开多轮评测切片共 {len(eval_items)} 个 (均已完成动态工具注入)")
+
+    # 🚀 路由阶段已全部结束，如果是在 GPU 上运行，主动释放路由模型的显存给后续 vLLM
+    if router is not None:
+        try:
+            import gc
+            import torch
+            del router.m3
+            del router.reranker
+            del router
+            router = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
+            print("🧹 路由阶段模型显存已安全释放，为后续 vLLM 推理引擎腾出完整显存空间。\n")
+        except Exception:
+            pass
 
     # 3. 统一构建大模型实际接收的输入 Prompt (保证 Mock 与真实 vLLM 推理均严格执行并可审计)
     baseline_prompts = []

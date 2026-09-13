@@ -106,11 +106,18 @@
 评测与压测全流程 (未合并 LoRA vs 合并 LoRA 性能对比):
 --------------------------------------------------------------------------------
 
+【步骤 0：下载 BGE-M3 与 Reranker 路由模型 (仅需在 Linux 首次执行一次)】
+# 使用 ModelScope 极速下载至 model/ 统一目录 (走国内阿里云内网镜像，几秒完成)
+uv run --no-sync python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-m3', local_dir='model/BAAI/bge-m3'); snapshot_download('BAAI/bge-reranker-base', local_dir='model/BAAI/bge-reranker-base')"
+
+
 【步骤 1：离线教师迫导推理评测 (Baseline vs SFT-LoRA)】
-# 后台启动推理评测 (自动读取 .env 中 MODEL_PATH 与 LORA_PATH)
+# 后台启动推理评测 (已自动绑定 .env 与 model/BAAI/... 本地路径)
 nohup uv run --no-sync python -u scripts/02_eval_model_inference.py \
     --baseline_model model/Qwen/Qwen3-8B \
     --sft_model output/qwen_8b_lora_sft/best_lora \
+    --bge_m3_path model/BAAI/bge-m3 \
+    --reranker_path model/BAAI/bge-reranker-base \
     --batch_size 32 \
     --max_tokens 1024 \
     --output_file outputs/car_eval/model_predictions.jsonl \
