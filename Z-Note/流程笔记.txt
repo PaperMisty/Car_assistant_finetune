@@ -103,6 +103,17 @@
             发现 意图工具和对话内容不是直接对应, 需要加上BGE-reranker-base模型进行重排序
         3.5.3 数据集质量问题, 导致Tool路由总是与数据集标准答案不同
 
+评测:
+ nohup uv run --no-sync python -u scripts/02_eval_model_inference.py \
+    --baseline_model model/Qwen/Qwen3-8B \
+    --sft_model output/qwen_8b_lora_sft/best_lora \
+    --batch_size 32 \
+    --max_tokens 1024 \
+    --output_file outputs/car_eval/model_predictions.jsonl \
+    > eval_inference.log 2>&1 &
+
+# 查看实时进度条
+tail -f eval_inference.log
 压测命令(测下合并adapter与否的区别,注意先备份一份adapter):
 uv run --no-sync python -m utils.vllm_stress_test \
   --base_url "http://127.0.0.1:8000" \
