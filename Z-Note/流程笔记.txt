@@ -126,6 +126,16 @@ nohup uv run --no-sync python -u scripts/02_eval_model_inference.py \
 # 实时查看评测进度条
 tail -f eval_inference.log
 
+# 💡【备用方案：若 BGE 路由出现环境或权重问题，直接一键启用全量工具直接注入 (零外部模型依赖)】
+# nohup uv run --no-sync python -u scripts/02_eval_model_inference.py \
+#     --baseline_model model/Qwen/Qwen3-8B \
+#     --sft_model output/qwen_8b_lora_sft/best_lora \
+#     --tool_mode full \
+#     --batch_size 32 \
+#     --max_tokens 1024 \
+#     --output_file outputs/car_eval/model_predictions.jsonl \
+#     > eval_inference.log 2>&1 &
+
 
 【步骤 2：未合并 LoRA 模型的 vLLM 服务启动与第 1 次压力测试】
 # 2.1 启动 vLLM 服务 (加载基座并动态挂载 LoRA 适配器，服务名为 Qwen3-8B-sft-lora)

@@ -34,51 +34,15 @@ if hasattr(sys.stdout, "reconfigure"):
 load_dotenv(override=True)
 
 from utils.tool import export_compact_schemas, get_tools_by_names, TOOL_REGISTRY
-from experiments.test_bge_m3_tool_routing import (
-    BGEM3ToolRetriever,
-    get_or_build_tool_embeddings,
-    format_tool_signature_text,
-    DEFAULT_BGE_M3_PATH
+from utils.tool_router import (
+    BaseToolRouter,
+    FullToolRouter,
+    NoToolRouter,
+    TwoStageToolRouter,
+    get_tool_router,
+    DEFAULT_BGE_M3_PATH,
+    DEFAULT_RERANKER_PATH,
 )
-from experiments.test_bge_reranker_routing import (
-    BGEReranker,
-    DEFAULT_RERANKER_PATH
-)
-
-
-def resolve_model_path(target_path: str, env_key: str, default_rel: str, fallback_hardcoded: str) -> str:
-    """智能解析跨平台模型路径：优先使用命令行参数/环境变量/相对路径，回退到历史硬编码"""
-    candidates = [
-        target_path,
-        os.getenv(env_key),
-        default_rel,
-        fallback_hardcoded,
-    ]
-    for c in candidates:
-        if c:
-            cleaned = c.strip("\"'")
-            if os.path.exists(cleaned):
-                return cleaned
-    return (target_path or os.getenv(env_key) or default_rel).strip("\"'")
-
-
-def get_optimal_device(device_arg: str = "auto") -> str:
-    """根据硬件可用性自动判定设备：有 GPU 优先使用 cuda，否则回退使用 cpu"""
-    if device_arg and device_arg.lower() in ["cuda", "cpu"]:
-        if device_arg.lower() == "cuda":
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    return "cuda"
-            except Exception:
-                pass
-            return "cpu"
-        return device_arg.lower()
-    try:
-        import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except Exception:
-        return "cpu"
 
 
 def parse_args():
@@ -131,10 +95,17 @@ def parse_args():
         help="启用 Mock 模拟推理模式 (无 GPU 或本地验证使用)",
     )
     parser.add_argument(
+        "--tool_mode",
+        type=str,
+        default="router",
+        choices=["router", "full", "none"],
+        help="工具注入模式: 'router' (两阶段智能路由，权重缺失自动回退full), 'full' (全量工具直接注入, 零神经网络依赖), 'none' (纯对话无工具)",
+    )
+    parser.add_argument(
         "--use_router",
         action="store_true",
         default=True,
-        help="是否开启 BGE-M3 + Reranker 两阶段工具动态路由 (默认开启)",
+        help="是否开启两阶段路由 (向后兼容开关，设为 False 等价于 --tool_mode full)",
     )
     parser.add_argument(
         "--top_k_tools",
@@ -179,64 +150,6 @@ def parse_args():
         help="是否使用 EvalScope 运行 CMMLU 通用能力评估 (监测对齐税)",
     )
     return parser.parse_args()
-
-
-class TwoStageToolRouter:
-    """两阶段工具路由器：BGE-M3 向量初筛 (Top-10) + BGE-Reranker 跨注意力精排 (Top-3)"""
-
-    def __init__(
-        self,
-        m3_path: str = DEFAULT_BGE_M3_PATH,
-        reranker_path: str = DEFAULT_RERANKER_PATH,
-        device: str = "auto",
-        cache_dir: str = "experiments/cache"
-    ):
-        self.device = get_optimal_device(device)
-        self.available = False
-        try:
-            print(f"📦 正在初始化两阶段工具路由器 (运行设备: {self.device})...")
-            self.m3 = BGEM3ToolRetriever(model_path=m3_path, device=self.device)
-            self.tools, self.embeddings = get_or_build_tool_embeddings(self.m3, cache_dir=cache_dir)
-            self.reranker = BGEReranker(model_path=reranker_path, device=self.device)
-            self.tool_names = [t.get("function", t).get("name") for t in self.tools]
-            self.tool_texts = [format_tool_signature_text(t) for t in self.tools]
-            self.tool_name_to_text = {n: txt for n, txt in zip(self.tool_names, self.tool_texts)}
-            self.available = True
-            print(f"✅ 两阶段工具路由器初始化成功！全量原子工具池: {len(self.tool_names)} 个\n")
-        except Exception as e:
-            print(f"⚠️ 工具路由器未检测到本地权重或加载跳过 ({e})，启用自适应规则回退。")
-            self.tool_names = list(TOOL_REGISTRY.keys())
-
-    def route_tools(self, query: str, history_messages: List[Dict[str, Any]] = None, top_k: int = 3) -> List[str]:
-        """为当前轮次的用户提问检索出最匹配的 Top-K 工具名称"""
-        if not self.available:
-            # 离线环境下的平稳降级
-            defaults = ["vehicle_feature_query", "service_booking", "maintenance_due_query"]
-            return defaults[:top_k]
-
-        # 构造带有前序诉求锚点的丰富检索上下文
-        query_to_embed = query
-        if history_messages and len(history_messages) > 1:
-            first_user_msg = ""
-            for m in history_messages:
-                if m.get("role") == "user" and m.get("content"):
-                    first_user_msg = m.get("content")
-                    break
-            prev_content = history_messages[-1].get("content") or "" if history_messages else ""
-            query_to_embed = f"核心诉求: {first_user_msg[:60]} | 上文: {prev_content[:40]} | 当前提问: {query}"
-
-        # 1. 粗排：BGE-M3 向量相似度初筛 Top-10
-        q_vec = self.m3.encode_texts([query_to_embed])[0]
-        scores = np.dot(self.embeddings, q_vec)
-        top10_idx = np.argsort(scores)[::-1][:10]
-        stage1_names = [self.tool_names[i] for i in top10_idx]
-
-        # 2. 精排：BGE-Reranker 跨注意力深度重排
-        cand_texts = [self.tool_name_to_text[name] for name in stage1_names]
-        rerank_scores = self.reranker.rerank(query=query_to_embed, candidate_texts=cand_texts)
-        rerank_order = np.argsort(rerank_scores)[::-1]
-        final_names = [stage1_names[i] for i in rerank_order][:top_k]
-        return final_names
 
 
 def format_chatml_prompt(
@@ -321,8 +234,8 @@ def expand_teacher_forced_slices(
         history = item.get("full_dialog_history", [])
         if not history:
             q = item.get("query", "")
-            routed_names = router.route_tools(q, top_k=top_k_tools) if router else ["vehicle_feature_query"]
-            compact_tools = export_compact_schemas(get_tools_by_names(routed_names))
+            routed_names = router.route_tools(q, top_k=top_k_tools) if router else list(TOOL_REGISTRY.keys())
+            compact_tools = router.get_compact_tools(q, top_k=top_k_tools) if router else export_compact_schemas()
             
             slices.append({
                 **item,
@@ -361,14 +274,9 @@ def expand_teacher_forced_slices(
             if is_tool_call and not ref_resp:
                 ref_resp = f"[工具调用指令] {json.dumps(gt_tool_calls, ensure_ascii=False)}"
 
-            # 动态执行两阶段工具路由
-            routed_names = []
-            if router:
-                routed_names = router.route_tools(current_user_query, truncated_history, top_k=top_k_tools)
-            else:
-                routed_names = ["vehicle_feature_query", "service_booking", "repair_order_query"][:top_k_tools]
-                
-            compact_tools = export_compact_schemas(get_tools_by_names(routed_names))
+            # 动态执行工具获取 (支持智能路由、全量直接注入与空模式)
+            routed_names = router.route_tools(current_user_query, truncated_history, top_k=top_k_tools) if router else list(TOOL_REGISTRY.keys())
+            compact_tools = router.get_compact_tools(current_user_query, truncated_history, top_k=top_k_tools) if router else export_compact_schemas()
 
             slice_item = {
                 **item,
@@ -450,6 +358,7 @@ def main():
     print("🚗 智能汽车客服助手多轮推理评测 (集成动态两阶段路由与思维控制)")
     print(f"评测输入: {args.input_file}")
     print(f"结果保存: {args.output_file}")
+    print(f"工具模式: {args.tool_mode} (use_router={args.use_router})")
     think_ctrl_str = "闭合 <think> 标签" if args.close_think else "未闭合"
     print(f"思考控制: {think_ctrl_str} | 提示词抑制: {args.suppress_thinking}")
     print(f"运行模式: {'Mock 本地模拟测试' if args.mock else 'vLLM 真实推理'}")
@@ -468,46 +377,25 @@ def main():
         raw_items = raw_items[: args.limit]
         print(f"已截取前 {len(raw_items)} 条测试样本")
 
-    # 1. 初始化两阶段工具路由器
-    router = None
-    if args.use_router:
-        m3_actual = resolve_model_path(
-            args.bge_m3_path,
-            "BGE_M3_PATH",
-            "model/BAAI/bge-m3",
-            DEFAULT_BGE_M3_PATH,
-        )
-        reranker_actual = resolve_model_path(
-            args.reranker_path,
-            "RERANKER_PATH",
-            "model/BAAI/bge-reranker-base",
-            DEFAULT_RERANKER_PATH,
-        )
-        router = TwoStageToolRouter(
-            m3_path=m3_actual,
-            reranker_path=reranker_actual,
-            device=args.router_device,
-        )
+    # 1. 统一初始化解耦的工具路由器 (支持 router / full / none)
+    effective_tool_mode = args.tool_mode
+    if not args.use_router:
+        effective_tool_mode = "full"
 
-    # 2. 教师强迫多轮切片展开 (同时为每一轮动态分配 Top-3 紧凑工具)
+    router = get_tool_router(
+        mode=effective_tool_mode,
+        bge_m3_path=args.bge_m3_path,
+        reranker_path=args.reranker_path,
+        device=args.router_device,
+    )
+
+    # 2. 教师强迫多轮切片展开 (每一轮根据所选策略注入工具)
     eval_items = expand_teacher_forced_slices(raw_items, router=router, top_k_tools=args.top_k_tools)
-    print(f"📊 切片完成：原始样本 {len(raw_items)} 组 -> 展开多轮评测切片共 {len(eval_items)} 个 (均已完成动态工具注入)")
+    print(f"📊 切片完成：原始样本 {len(raw_items)} 组 -> 展开多轮评测切片共 {len(eval_items)} 个 (均已完成工具注入)")
 
     # 🚀 路由阶段已全部结束，如果是在 GPU 上运行，主动释放路由模型的显存给后续 vLLM
     if router is not None:
-        try:
-            import gc
-            import torch
-            del router.m3
-            del router.reranker
-            del router
-            router = None
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                gc.collect()
-            print("🧹 路由阶段模型显存已安全释放，为后续 vLLM 推理引擎腾出完整显存空间。\n")
-        except Exception:
-            pass
+        router.release_memory()
 
     # 3. 统一构建大模型实际接收的输入 Prompt (保证 Mock 与真实 vLLM 推理均严格执行并可审计)
     baseline_prompts = []

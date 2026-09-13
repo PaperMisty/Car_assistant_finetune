@@ -573,8 +573,29 @@ def export_compact_schemas(tool_list: Optional[List[Any]] = None) -> List[Dict[s
     tools_to_export = tool_list if tool_list is not None else get_all_tools()
     compact_list = []
     for t in tools_to_export:
-        t_name = getattr(t, "name", t.__name__)
-        t_desc = getattr(t, "description", t.__doc__ or "").strip()
+        if isinstance(t, dict):
+            func = t.get("function", t)
+            t_name = func.get("name", "")
+            t_desc = func.get("description", "").strip()
+            props = func.get("parameters", {}).get("properties", {})
+            required_set = set(func.get("parameters", {}).get("required", []))
+            compact_params = {}
+            for p_name, p_info in props.items():
+                req_label = "必填" if p_name in required_set else "可选"
+                p_type = p_info.get("type", "string")
+                p_desc = p_info.get("description", "").replace("[必需] ", "").replace("[可选] ", "").strip()
+                if "enum" in p_info:
+                    p_desc += f" 枚举:{p_info['enum']}"
+                compact_params[p_name] = f"{p_type}({req_label}): {p_desc}"
+            compact_list.append({
+                "name": t_name,
+                "description": t_desc,
+                "parameters": compact_params,
+            })
+            continue
+
+        t_name = getattr(t, "name", None) or getattr(t, "__name__", str(t))
+        t_desc = (getattr(t, "description", None) or getattr(t, "__doc__", "") or "").strip()
         
         compact_params = {}
         if hasattr(t, "args_schema") and t.args_schema:
