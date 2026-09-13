@@ -44,19 +44,19 @@ def parse_args():
     parser.add_argument(
         "--base_model",
         type=str,
-        default=os.getenv("MODEL_PATH", "model/Qwen/Qwen3-8B"),
+        default=os.getenv("MODEL_PATH", "model/Qwen/Qwen3-8B").strip("\"'"),
         help="基座模型本地路径或 HuggingFace/ModelScope 标识符",
     )
     parser.add_argument(
         "--lora_path",
         type=str,
-        default=os.getenv("LORA_PATH", "output/qwen_8b_lora_sft/best_lora"),
+        default=os.getenv("LORA_PATH", "output/qwen_8b_lora_sft/best_lora").strip("\"'"),
         help="待合并的 LoRA 适配器权重目录 (如 output/qwen_8b_lora_sft/best_lora)",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default=os.getenv("MERGED_MODEL_PATH", "output/qwen_8b_merged_sft"),
+        default=os.getenv("MERGED_MODEL_PATH", "output/qwen_8b_merged_sft").strip("\"'"),
         help="合并后全量模型的输出保存目录",
     )
     parser.add_argument(

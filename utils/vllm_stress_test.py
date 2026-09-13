@@ -636,14 +636,14 @@ def main():
     parser.add_argument(
         "--base_url",
         type=str,
-        default=os.getenv("VLLM_BASE_URL", "http://127.0.0.1:8000"),
+        default=os.getenv("VLLM_BASE_URL", "http://127.0.0.1:8000").strip("\"'"),
         help="vLLM OpenAI 兼容服务端根地址 (默认 http://127.0.0.1:8000)",
     )
     parser.add_argument(
         "--model",
         type=str,
-        default=os.getenv("MODEL_NAME", "Qwen3-8B-sft-all"),
-        help="待压测模型服务名称",
+        default=os.getenv("MODEL_NAME", "Qwen3-8B-sft-lora").strip("\"'"),
+        help="待压测模型服务名称 (如 Qwen3-8B-sft-lora 或 Qwen3-8B-sft-merged)",
     )
     parser.add_argument(
         "--concurrency_levels",

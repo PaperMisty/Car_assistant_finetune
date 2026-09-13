@@ -63,14 +63,14 @@ def parse_args():
     parser.add_argument(
         "--baseline_model",
         type=str,
-        default=os.getenv("MODEL_PATH", "model/Qwen/Qwen3-8B"),
+        default=os.getenv("MODEL_PATH", "model/Qwen/Qwen3-8B").strip("\"'"),
         help="基座模型路径 (云端或本地)",
     )
     parser.add_argument(
         "--sft_model",
         type=str,
-        default=os.getenv("SFT_MODEL_PATH", "output/qwen_8b_lora_sft"),
-        help="SFT微调模型或LoRA权重路径",
+        default=(os.getenv("LORA_PATH") or os.getenv("SFT_MODEL_PATH") or "output/qwen_8b_lora_sft/best_lora").strip("\"'"),
+        help="SFT微调模型或LoRA权重路径 (默认 output/qwen_8b_lora_sft/best_lora)",
     )
     parser.add_argument(
         "--batch_size",

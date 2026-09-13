@@ -103,8 +103,12 @@
             发现 意图工具和对话内容不是直接对应, 需要加上BGE-reranker-base模型进行重排序
         3.5.3 数据集质量问题, 导致Tool路由总是与数据集标准答案不同
 
-评测:
- nohup uv run --no-sync python -u scripts/02_eval_model_inference.py \
+评测与压测全流程 (未合并 LoRA vs 合并 LoRA 性能对比):
+--------------------------------------------------------------------------------
+
+【步骤 1：离线教师迫导推理评测 (Baseline vs SFT-LoRA)】
+# 后台启动推理评测 (自动读取 .env 中 MODEL_PATH 与 LORA_PATH)
+nohup uv run --no-sync python -u scripts/02_eval_model_inference.py \
     --baseline_model model/Qwen/Qwen3-8B \
     --sft_model output/qwen_8b_lora_sft/best_lora \
     --batch_size 32 \
@@ -112,24 +116,81 @@
     --output_file outputs/car_eval/model_predictions.jsonl \
     > eval_inference.log 2>&1 &
 
-# 查看实时进度条
+# 实时查看评测进度条
 tail -f eval_inference.log
-压测命令(测下合并adapter与否的区别,注意先备份一份adapter):
+
+
+【步骤 2：未合并 LoRA 模型的 vLLM 服务启动与第 1 次压力测试】
+# 2.1 启动 vLLM 服务 (加载基座并动态挂载 LoRA 适配器，服务名为 Qwen3-8B-sft-lora)
+nohup vllm serve model/Qwen/Qwen3-8B \
+    --enable-lora \
+    --lora-modules Qwen3-8B-sft-lora=output/qwen_8b_lora_sft/best_lora \
+    --max-lora-rank 64 \
+    --port 8000 \
+    --gpu-memory-utilization 0.90 \
+    --max-model-len 4096 \
+    --trust-remote-code \
+    > vllm_lora.log 2>&1 &
+
+# 确认服务启动完成 (输出 Application startup complete 即表示就绪)
+tail -f vllm_lora.log
+
+# 2.2 执行未合并 LoRA 的并发压力测试 (输出至 outputs/benchmark_lora)
 uv run --no-sync python -m utils.vllm_stress_test \
-  --base_url "http://127.0.0.1:8000" \
-  --model "Qwen3-8B-sft-all" \
-  --concurrency_levels 5 10 20 40 60 \
-  --num_requests_per_level 50 \
-  --output_dir "outputs/benchmark"
+    --base_url "http://127.0.0.1:8000" \
+    --model "Qwen3-8B-sft-lora" \
+    --concurrency_levels 5 10 20 40 60 \
+    --num_requests_per_level 50 \
+    --output_dir "outputs/benchmark_lora"
 
-备用压测命令:
+# 2.3 压测完成后释放显存，关闭 vLLM 进程
+pkill -f "vllm serve"
+
+
+【步骤 3：永久合并 LoRA 适配器权重进基座 (Zero-Overhead 全量模型)】
+# 合并权重并导出到 output/qwen_8b_merged_sft (自动读取 .env 路径配置)
+uv run --no-sync python -u utils/merge_lora_weights.py \
+    --base_model model/Qwen/Qwen3-8B \
+    --lora_path output/qwen_8b_lora_sft/best_lora \
+    --output_dir output/qwen_8b_merged_sft \
+    --dtype bfloat16
+
+============
+现代 vLLM 的优化极致：在当前版本的 vLLM 中，使用了专门优化的 Punica/FlashInfer 动态 LoRA 算子；
+性能几乎零损耗：单 LoRA 场景下，合并与不合并的吞吐量差异通常小于 2%~3%，响应时间（TTFT）基本完全一致；
+
+【步骤 4：合并后全量模型的 vLLM 服务启动与第 2 次压力测试】
+# 4.1 启动 vLLM 服务 (直接加载合并后的原生全量权重，零额外适配层计算开销)
+nohup vllm serve output/qwen_8b_merged_sft \
+    --served-model-name Qwen3-8B-sft-merged \
+    --port 8000 \
+    --gpu-memory-utilization 0.90 \
+    --max-model-len 4096 \
+    --trust-remote-code \
+    > vllm_merged.log 2>&1 &
+
+# 确认服务启动就绪
+tail -f vllm_merged.log
+
+# 4.2 执行合并后全量模型的并发压力测试 (输出至 outputs/benchmark_merged)
+uv run --no-sync python -m utils.vllm_stress_test \
+    --base_url "http://127.0.0.1:8000" \
+    --model "Qwen3-8B-sft-merged" \
+    --concurrency_levels 5 10 20 40 60 \
+    --num_requests_per_level 50 \
+    --output_dir "outputs/benchmark_merged"
+
+# 4.3 压测完成后关闭服务
+pkill -f "vllm serve"
+
+
+--------------------------------------------------------------------------------
+【备用：EvalScope 原生压测命令】
 evalscope perf \
---url "http://127.0.0.1:8000/v1/chat/completions" \
---parallel 5 10 20 40 60\
---model Qwen3-8B-sft-all \
---number 10 10 10 10 10\
---api openai \
---dataset openqa \
---stream
-
-        
+    --url "http://127.0.0.1:8000/v1/chat/completions" \
+    --parallel 5 10 20 40 60 \
+    --model Qwen3-8B-sft-merged \
+    --number 10 10 10 10 10 \
+    --api openai \
+    --dataset openqa \
+    --stream
