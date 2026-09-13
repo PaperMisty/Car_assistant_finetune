@@ -68,7 +68,9 @@ def parse_args():
     parser.add_argument(
         "--sft_model",
         type=str,
-        default=(os.getenv("LORA_PATH") or os.getenv("SFT_MODEL_PATH") or "output/qwen_8b_lora_sft/best_lora").strip("\"'"),
+        default=(os.getenv("LORA_PATH") or os.getenv("SFT_MODEL_PATH") or "output/qwen_8b_lora_sft/best_lora").strip(
+            "\"'"
+        ),
         help="SFT微调模型或LoRA权重路径 (默认 output/qwen_8b_lora_sft/best_lora)",
     )
     parser.add_argument(
@@ -162,12 +164,12 @@ def format_chatml_prompt(
     messages: List[Dict[str, Any]],
     system_prompt: str = None,
     compact_tools: List[Dict[str, Any]] = None,
-    close_think: bool = False,
-    suppress_thinking: bool = False,
+    close_think: bool = True,
+    suppress_thinking: bool = True,
 ) -> str:
     """
     将多轮消息序列化为符合 Qwen ChatML 规范的提示词。
-    
+
     进阶特性：
     1. 【动态紧凑工具注入】: 注入 compact_schemas 格式的工具定义；
     2. 【思维链提前闭合】: 若 close_think=True，预置 `<think>\\n</think>\\n` 迫使基座模型直接进入正文；
@@ -176,9 +178,13 @@ def format_chatml_prompt(
     prompt_parts = []
 
     # 1. 组装系统提示词 (含紧凑工具描述与思考抑制约束)
-    effective_system = system_prompt or "你是智能汽车官方客服助手。请以专业、冷静、严谨的风格协助车主解决用车与维保问题。"
+    effective_system = (
+        system_prompt or "你是智能汽车官方客服助手。请以专业、冷静、严谨的风格协助车主解决用车与维保问题。"
+    )
     if suppress_thinking:
-        effective_system += "\n【回复规范】：直接输出解答或工具调用指令，严禁在回答中进行冗长的内心独白或输出大段长思考过程。"
+        effective_system += (
+            "\n【回复规范】：直接输出解答或工具调用指令，严禁在回答中进行冗长的内心独白或输出大段长思考过程。"
+        )
 
     if compact_tools:
         tools_str = json.dumps(compact_tools, ensure_ascii=False, indent=2)
@@ -208,7 +214,11 @@ def format_chatml_prompt(
         elif role == "assistant":
             if tool_calls:
                 call_info = json.dumps(tool_calls, ensure_ascii=False)
-                body = f"{content}\n<tool_call>\n{call_info}\n</tool_call>" if content else f"<tool_call>\n{call_info}\n</tool_call>"
+                body = (
+                    f"{content}\n<tool_call>\n{call_info}\n</tool_call>"
+                    if content
+                    else f"<tool_call>\n{call_info}\n</tool_call>"
+                )
                 prompt_parts.append(f"<|im_start|>assistant\n{body.strip()}<|im_end|>\n")
             else:
                 prompt_parts.append(f"<|im_start|>assistant\n{content}<|im_end|>\n")
@@ -228,9 +238,7 @@ def format_chatml_prompt(
 
 
 def expand_teacher_forced_slices(
-    eval_items: List[Dict[str, Any]],
-    router: Optional[TwoStageToolRouter] = None,
-    top_k_tools: int = 3
+    eval_items: List[Dict[str, Any]], router: Optional[TwoStageToolRouter] = None, top_k_tools: int = 3
 ) -> List[Dict[str, Any]]:
     """
     按教师强迫原则将多轮对话拆解为独立评估切片，并在此步骤动态为每个切片执行两阶段工具路由。
@@ -242,21 +250,23 @@ def expand_teacher_forced_slices(
             q = item.get("query", "")
             routed_names = router.route_tools(q, top_k=top_k_tools) if router else list(TOOL_REGISTRY.keys())
             compact_tools = router.get_compact_tools(q, top_k=top_k_tools) if router else export_compact_schemas()
-            
-            slices.append({
-                **item,
-                "slice_id": f"{item.get('id', 'item')}_t1",
-                "turn_index": 1,
-                "total_turns": 1,
-                "history_messages": [
-                    {"role": "system", "content": item.get("system_prompt", "你是智能汽车官方客服助手。")},
-                    {"role": "user", "content": q},
-                ],
-                "current_turn_query": q,
-                "is_tool_call_turn": item.get("tool_required", False),
-                "routed_tool_names": routed_names,
-                "compact_tools": compact_tools,
-            })
+
+            slices.append(
+                {
+                    **item,
+                    "slice_id": f"{item.get('id', 'item')}_t1",
+                    "turn_index": 1,
+                    "total_turns": 1,
+                    "history_messages": [
+                        {"role": "system", "content": item.get("system_prompt", "你是智能汽车官方客服助手。")},
+                        {"role": "user", "content": q},
+                    ],
+                    "current_turn_query": q,
+                    "is_tool_call_turn": item.get("tool_required", False),
+                    "routed_tool_names": routed_names,
+                    "compact_tools": compact_tools,
+                }
+            )
             continue
 
         assistant_indices = [idx for idx, m in enumerate(history) if m.get("role") == "assistant"]
@@ -281,8 +291,16 @@ def expand_teacher_forced_slices(
                 ref_resp = f"[工具调用指令] {json.dumps(gt_tool_calls, ensure_ascii=False)}"
 
             # 动态执行工具获取 (支持智能路由、全量直接注入与空模式)
-            routed_names = router.route_tools(current_user_query, truncated_history, top_k=top_k_tools) if router else list(TOOL_REGISTRY.keys())
-            compact_tools = router.get_compact_tools(current_user_query, truncated_history, top_k=top_k_tools) if router else export_compact_schemas()
+            routed_names = (
+                router.route_tools(current_user_query, truncated_history, top_k=top_k_tools)
+                if router
+                else list(TOOL_REGISTRY.keys())
+            )
+            compact_tools = (
+                router.get_compact_tools(current_user_query, truncated_history, top_k=top_k_tools)
+                if router
+                else export_compact_schemas()
+            )
 
             slice_item = {
                 **item,
@@ -332,7 +350,9 @@ def generate_mock_responses(eval_items: List[Dict[str, Any]]) -> List[Dict[str, 
             )
             baseline_response = f"你好，关于“{q[:25]}...”，你可以试着重启一下车机。"
         elif turn_idx == total_turns:
-            sft_response = "非常高兴能为您解决问题！请系好安全带，注意行车安全，祝您一路顺风！如后续有任何疑问欢迎随时联系。"
+            sft_response = (
+                "非常高兴能为您解决问题！请系好安全带，注意行车安全，祝您一路顺风！如后续有任何疑问欢迎随时联系。"
+            )
             baseline_response = "好的，不客气。"
         else:
             act_str = req_actions[0] if req_actions else "请在驻车状态下点击中控屏设置进行排查"
@@ -418,8 +438,8 @@ def main():
             messages=item.get("history_messages", []),
             system_prompt=item.get("system_prompt"),
             compact_tools=item.get("compact_tools"),
-            close_think=False,  # SFT 已学会直接输出结构化结果
-            suppress_thinking=False,
+            close_think=True,
+            suppress_thinking=True,
         )
         baseline_prompts.append(bp)
         sft_prompts.append(sp)
@@ -469,6 +489,7 @@ def main():
     if not args.mock:
         try:
             import torch
+
             can_use_vllm = torch.cuda.is_available() and os.path.exists(args.baseline_model)
         except Exception:
             can_use_vllm = False
@@ -494,11 +515,7 @@ def main():
         real_sft_path = args.sft_model
         adapter_cfg = os.path.join(real_sft_path, "adapter_config.json")
         if not os.path.exists(adapter_cfg):
-            ckpts = sorted(
-                glob.glob(os.path.join(real_sft_path, "checkpoint-*")),
-                key=os.path.getmtime,
-                reverse=True
-            )
+            ckpts = sorted(glob.glob(os.path.join(real_sft_path, "checkpoint-*")), key=os.path.getmtime, reverse=True)
             for ckpt in ckpts:
                 sub_cfg = os.path.join(ckpt, "adapter_config.json")
                 if os.path.exists(sub_cfg):
@@ -515,7 +532,9 @@ def main():
             except Exception:
                 pass
 
-        print(f"正在启动 vLLM 引擎: {args.baseline_model} (GPU Memory: 90%, Max Context: {args.max_model_len}, LoRA Rank: {actual_lora_rank})...")
+        print(
+            f"正在启动 vLLM 引擎: {args.baseline_model} (GPU Memory: 90%, Max Context: {args.max_model_len}, LoRA Rank: {actual_lora_rank})..."
+        )
         llm = LLM(
             model=args.baseline_model,
             tensor_parallel_size=1,
@@ -582,6 +601,7 @@ def main():
 
     if args.run_cmmlu:
         from evalscope import TaskConfig, run_task
+
         print("正在运行 CMMLU 通用能力评测...")
         task_cfg = TaskConfig(model=args.sft_model, eval_type="llm_ckpt", datasets=["cmmlu"])
         run_task(task_cfg=task_cfg)

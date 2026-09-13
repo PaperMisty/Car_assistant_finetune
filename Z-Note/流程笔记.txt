@@ -52,9 +52,9 @@
     2.1 客服微调模型选用7-14B，默认Qwen3-8B来微调, 
         另外因为Qwen对中文token的优化很好达到了1:0.7, 省了30%额度;
     2.2 微调技术选型
-    Unsloth+LoRA，基座模型参数显存8*2=16G，LoRA矩阵大小约180M，优化器+BF16梯度约180*3 =540M=0.54G，
-        激活值在max_seq_len=2048时，大约12G (其中QK矩阵单独占5G , FFN激活值和Logits占用其次)
-        估算合计有:16+12+0.54+(其他开销 1-2G) = 30G左右(但是token实际是没有2048的,要乘以0.7)
+    Unsloth+LoRA，基座模型参数显存8*2=16G，LoRA矩阵参数83MB左右, 83*8=664MB左右的LoRA占用(4倍优化器,2倍高精度主权重,1倍梯度,1倍低精度权重)
+        激活值在max_seq_len=2048时(1700tokens)，大约12G (其中QK矩阵单独占6G , FFN激活值和Logits占用其次)
+        估算合计有:16+12+0.6+(其他开销 1-2G) = 30G左右
         在RTX5090（32G）上面跑 ,如果Unsloth有明显显存优化的话, 那么显存占用应该到不了峰值
         实际: 发现占用在24-26GB之间
     2.3 踩坑
@@ -69,7 +69,11 @@
     我需要验证是否微调具备明显更规范的流程,应该很难,尤其在工具调用方面,
     如果做好+prompt约束那么Base模型应该也有不错效果;那么不微调只有token浪费小问题了
 
-4.
+4.实际效果,发现微调模型确实在既定场景下表现略优, 不会抢跑调用工具, 
+但是实际上Base模型也具备工具调用能力,注入工具后,两者表现差不太多,只是Base模型有时会抢跑;
+最主要的还是数据问题, 种子数据在工具调用方面就差点意思(很多工具职责重叠,不是很好区分标准答案 !!)
+而且LLM合成的数据也是存在内部逻辑不一致,抢跑调用工具,调错工具的数据,非常麻烦;
+
 
 
 -----------------------------------------------------------------------------------------------
@@ -102,8 +106,49 @@
         3.5.2 向量化路由,检索(BGE-embedding)+意图粘滞(避免意图随着对话推进稀释)
             发现 意图工具和对话内容不是直接对应, 需要加上BGE-reranker-base模型进行重排序
         3.5.3 数据集质量问题, 导致Tool路由总是与数据集标准答案不同
+        3.5.4 向量检索召回Top10+Reranker重排Top3的效果很好,主要是Reranker确实实现了意图识别匹配工具这一高阶操作,
+        因为单纯词义匹配根本不具备预测能力;
+        (所以,对于这种1GB左右的小模型做意图匹配,推荐本地部署而非网络调用, 
+        因为网络IO的时间开销大,影响后面LLM的首token延迟)
 
-评测与压测全流程 (未合并 LoRA vs 合并 LoRA 性能对比):
+
+    3.6压力测试
+        RPS = Batch / Latency(Latency=TTFT+tokens*TPOT),代表每秒处理多少个完整请求
+        TPOT在batch=64的时候表现还是很平稳,完全没有抵达瓶颈;
+        TTFT随着batch上升,有明显上升,是因为prefill每次要处理200多*batch的token,GPU很快满载,
+                而deocde则相对稳定,所以TPOT基本没变
+        
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+草稿: 评测与压测全流程 (未合并 LoRA vs 合并 LoRA 性能对比):
 --------------------------------------------------------------------------------
 
 【步骤 0：下载 BGE-M3 与 Reranker 路由模型 (仅需在 Linux 首次执行一次)】
@@ -139,7 +184,7 @@ tail -f eval_inference.log
 
 【步骤 2：未合并 LoRA 模型的 vLLM 服务启动与第 1 次压力测试】
 # 2.1 启动 vLLM 服务 (加载基座并动态挂载 LoRA 适配器，服务名为 Qwen3-8B-sft-lora)
-nohup vllm serve model/Qwen/Qwen3-8B \
+nohup uv run --no-sync vllm serve model/Qwen/Qwen3-8B \
     --enable-lora \
     --lora-modules Qwen3-8B-sft-lora=output/qwen_8b_lora_sft/best_lora \
     --max-lora-rank 64 \
@@ -161,8 +206,11 @@ uv run --no-sync python -m utils.vllm_stress_test \
     --output_dir "outputs/benchmark_lora"
 
 # 2.3 压测完成后释放显存，关闭 vLLM 进程
-pkill -f "vllm serve"
+pkill -f "vllm"
 
+============
+现代 vLLM 的优化极致：在当前版本的 vLLM 中，使用了专门优化的 Punica/FlashInfer 动态 LoRA 算子；
+性能几乎零损耗：单 LoRA 场景下，合并与不合并的吞吐量差异通常小于 2%~3%，响应时间（TTFT）基本完全一致；
 
 【步骤 3：永久合并 LoRA 适配器权重进基座 (Zero-Overhead 全量模型)】
 # 合并权重并导出到 output/qwen_8b_merged_sft (自动读取 .env 路径配置)
@@ -172,13 +220,10 @@ uv run --no-sync python -u utils/merge_lora_weights.py \
     --output_dir output/qwen_8b_merged_sft \
     --dtype bfloat16
 
-============
-现代 vLLM 的优化极致：在当前版本的 vLLM 中，使用了专门优化的 Punica/FlashInfer 动态 LoRA 算子；
-性能几乎零损耗：单 LoRA 场景下，合并与不合并的吞吐量差异通常小于 2%~3%，响应时间（TTFT）基本完全一致；
 
 【步骤 4：合并后全量模型的 vLLM 服务启动与第 2 次压力测试】
 # 4.1 启动 vLLM 服务 (直接加载合并后的原生全量权重，零额外适配层计算开销)
-nohup vllm serve output/qwen_8b_merged_sft \
+nohup uv run --no-sync vllm serve output/qwen_8b_merged_sft \
     --served-model-name Qwen3-8B-sft-merged \
     --port 8000 \
     --gpu-memory-utilization 0.90 \

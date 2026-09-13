@@ -154,11 +154,12 @@ async def fetch_vllm_prometheus_metrics(metrics_url: str) -> Dict[str, float]:
                             name, val = parts[0], parts[1]
                             try:
                                 v_float = float(val)
-                                if "vllm:gpu_cache_usage_factor" in name:
+                                # 兼容 vllm:xxx 与 vllm_xxx 及无前缀格式
+                                if "gpu_cache_usage_factor" in name or "gpu_cache_usage_pct" in name:
                                     metrics["gpu_cache_usage_factor"] = v_float
-                                elif "vllm:num_preemptions_total" in name:
+                                elif "num_preemptions" in name or "preemption_total" in name:
                                     metrics["num_preemptions_total"] = v_float
-                                elif "vllm:prefix_cache_hit_rate" in name:
+                                elif "prefix_cache_hit_rate" in name or "cache_hit_rate" in name:
                                     metrics["prefix_cache_hit_rate"] = v_float
                             except ValueError:
                                 pass
@@ -306,7 +307,7 @@ async def run_concurrency_level_benchmark(
             while not stop_sampling:
                 m = await fetch_vllm_prometheus_metrics(metrics_url)
                 cache_usage_samples.append(m.get("gpu_cache_usage_factor", 0.0) * 100)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
         sampler_task = asyncio.create_task(cache_monitor())
         tasks = [asyncio.create_task(worker(i)) for i in range(total_requests)]
