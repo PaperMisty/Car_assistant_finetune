@@ -213,11 +213,27 @@ def format_chatml_prompt(
             prompt_parts.append(f"<|im_start|>user\n{content}<|im_end|>\n")
         elif role == "assistant":
             if tool_calls:
-                call_info = json.dumps(tool_calls, ensure_ascii=False)
+                call_strs = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict) and "function" in tc:
+                        func = tc.get("function", {}) or {}
+                        tc_name, tc_args = func.get("name"), func.get("arguments")
+                    elif isinstance(tc, dict):
+                        tc_name, tc_args = tc.get("name"), tc.get("arguments")
+                    else:
+                        continue
+                    if isinstance(tc_args, str):
+                        try:
+                            tc_args = json.loads(tc_args)
+                        except Exception:
+                            pass
+                    call_strs.append(
+                        f"<tool_call>\n{json.dumps({'name': tc_name, 'arguments': tc_args}, ensure_ascii=False)}\n</tool_call>"
+                    )
                 body = (
-                    f"{content}\n<tool_call>\n{call_info}\n</tool_call>"
+                    f"{content}\n" + "\n".join(call_strs)
                     if content
-                    else f"<tool_call>\n{call_info}\n</tool_call>"
+                    else "\n".join(call_strs)
                 )
                 prompt_parts.append(f"<|im_start|>assistant\n{body.strip()}<|im_end|>\n")
             else:

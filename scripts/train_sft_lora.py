@@ -175,7 +175,11 @@ class TrainingProgressCallback(TrainerCallback):
 # ==============================================================================
 def sanitize_messages_for_chat_template(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     """
-    将 SFT 样本中可能存在的 tool / tool_calls 等结构做标准化清洗，防止 Jinja 模版解析异常
+    将 SFT 样本中可能存在的 tool / tool_calls 等结构做标准化清洗，防止 Jinja 模版解析异常。
+    格式规范（与评测脚本 02 保持一致）：
+    1. tool 角色原样保留，渲染为 tool 专属块，不再改写成 user；
+    2. tool_calls 统一渲染为 tool_call 代码块，内含 name 与 arguments 对象；
+       arguments 若是字符串先解析为对象，避免双重转义。
     """
     clean_msgs = []
     for msg in messages:
@@ -184,12 +188,20 @@ def sanitize_messages_for_chat_template(messages: List[Dict[str, Any]]) -> List[
         tool_calls = msg.get("tool_calls")
 
         if role == "tool":
-            clean_msgs.append({"role": "user", "content": f"【系统工具返回数据】:\n{content}"})
+            clean_msgs.append({"role": "tool", "content": str(content)})
         elif role == "assistant" and tool_calls:
-            call_strs = [
-                f"<tool_call>\n{json.dumps({'name': tc.get('function', {}).get('name'), 'arguments': tc.get('function', {}).get('arguments')}, ensure_ascii=False)}\n</tool_call>"
-                for tc in tool_calls
-            ]
+            call_strs = []
+            for tc in tool_calls:
+                func = tc.get("function", {}) if isinstance(tc, dict) else {}
+                args = func.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        pass
+                call_strs.append(
+                    f"<tool_call>\n{json.dumps({'name': func.get('name'), 'arguments': args}, ensure_ascii=False)}\n</tool_call>"
+                )
             full_content = (content + "\n" + "\n".join(call_strs)).strip()
             clean_msgs.append({"role": "assistant", "content": full_content})
         else:
